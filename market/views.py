@@ -1,8 +1,14 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
+from rest_framework.authtoken.models import Token
+from django.contrib.auth import authenticate
+from drf_yasg.utils import swagger_auto_schema
+from .serializers import (
+    OrderCreateSerializer, OrderSerializer,
+    UserRegistrationSerializer, LoginSerializer
+)
 from .models import Stock, Account, Order
-from .serializers import OrderCreateSerializer, OrderSerializer
 from core.matching import MatchingEngine
 
 matching_engine = MatchingEngine()
@@ -13,7 +19,6 @@ class WelcomeView(APIView):
 
 class CreateOrderView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-
     def post(self, request):
         serializer = OrderCreateSerializer(data=request.data)
         if serializer.is_valid():
@@ -48,3 +53,24 @@ class CreateOrderView(APIView):
             order_serializer = OrderSerializer(order)
             return Response(order_serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class RegisterView(APIView):
+    @swagger_auto_schema(request_body=UserRegistrationSerializer)
+    def post(self, request):
+        serializer = UserRegistrationSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            token, _ = Token.objects.get_or_create(user=user)
+            return Response({"token": token.key}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class LoginView(APIView):
+    @swagger_auto_schema(request_body=LoginSerializer)
+    def post(self, request):
+        username = request.data.get("username")
+        password = request.data.get("password")
+        user = authenticate(username=username, password=password)
+        if user:
+            token, _ = Token.objects.get_or_create(user=user)
+            return Response({"token": token.key})
+        return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
