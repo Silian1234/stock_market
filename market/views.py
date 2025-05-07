@@ -4,6 +4,9 @@ from rest_framework import status, permissions
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from drf_yasg.utils import swagger_auto_schema
+from rest_framework.viewsets import ModelViewSet
+from .services import process_order
+
 from .serializers import (
     OrderCreateSerializer, OrderSerializer,
     UserRegistrationSerializer, LoginSerializer
@@ -19,6 +22,12 @@ class WelcomeView(APIView):
 
 class CreateOrderView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        request_body=OrderCreateSerializer,
+        responses={201: OrderSerializer},
+        operation_description="Создание заявки на покупку или продажу (лимитной или рыночной)"
+    )
     def post(self, request):
         serializer = OrderCreateSerializer(data=request.data)
         if serializer.is_valid():
@@ -74,3 +83,33 @@ class LoginView(APIView):
             token, _ = Token.objects.get_or_create(user=user)
             return Response({"token": token.key})
         return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+class OrderViewSet(ModelViewSet):
+    queryset = Order.objects.all()
+    serializer_class = OrderSerializer
+
+    @swagger_auto_schema(
+        request_body=OrderSerializer,
+        operation_description="Создать заявку (лимитную или рыночную) на покупку или продажу акций",
+        responses={201: OrderSerializer}
+    )
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        return response
+
+    def perform_create(self, serializer):
+        order = serializer.save(remaining_quantity=serializer.validated_data['quantity'])
+        process_order(order)
+
+class MyOrdersView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="Получить список всех заявок текущего пользователя",
+        responses={200: OrderSerializer(many=True)}
+    )
+    def get(self, request):
+        orders = Order.objects.filter(user=request.user).order_by('-created_at')
+        serializer = OrderSerializer(orders, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)

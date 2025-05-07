@@ -31,7 +31,27 @@ class OrderCreateSerializer(serializers.Serializer):
 class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
-        fields = '__all__'
+        fields = [
+            'id',
+            'user',
+            'stock',
+            'order_type',
+            'order_mode',
+            'price',
+            'quantity',
+            'remaining_quantity',
+            'is_filled',
+            'created_at',
+        ]
+        read_only_fields = ['remaining_quantity', 'is_filled', 'created_at']
+
+    def validate(self, data):
+        if data['order_mode'] == 'market' and data.get('price') is not None:
+            raise serializers.ValidationError("Для рыночного ордера не указывается цена.")
+        if data['order_mode'] == 'limit' and data.get('price') is None:
+            raise serializers.ValidationError("Для лимитного ордера обязательна цена.")
+        return data
+
 
 class StockSerializer(serializers.ModelSerializer):
     class Meta:
