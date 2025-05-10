@@ -113,3 +113,48 @@ class MyOrdersView(APIView):
         orders = Order.objects.filter(user=request.user).order_by('-created_at')
         serializer = OrderSerializer(orders, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+class InstantBuyView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        request_body=OrderCreateSerializer,
+        responses={201: OrderSerializer},
+        operation_description="Мгновенная покупка акций по рыночной цене"
+    )
+    def post(self, request):
+        serializer = OrderCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            data = serializer.validated_data
+            stock_id = data.get('stock_id')
+            quantity = data.get('quantity')
+
+            try:
+                stock = Stock.objects.get(id=stock_id)
+            except Stock.DoesNotExist:
+                return Response({"detail": "Stock not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            try:
+                account = Account.objects.get(user=request.user, currency="USD")
+            except Account.DoesNotExist:
+                return Response({"detail": "Account not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+            estimated_cost = stock.initial_price * quantity
+            if account.balance < estimated_cost:
+                return Response({"detail": "Insufficient balance."}, status=status.HTTP_400_BAD_REQUEST)
+
+            order = Order.objects.create(
+                user=request.user,
+                stock=stock,
+                order_type="buy",
+                order_mode="market",
+                price=None,
+                quantity=quantity,
+                remaining_quantity=quantity
+            )
+
+            matching_engine.match_orders(order)
+
+            return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

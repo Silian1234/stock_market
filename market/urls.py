@@ -7,4 +7,5 @@ urlpatterns = [
     path('auth/register/', RegisterView.as_view(), name='register'),
     path('auth/login/', LoginView.as_view(), name='login'),
     path('trading/my-orders/', MyOrdersView.as_view(), name='my_orders'),
+    path('trading/buy-now/', InstantBuyView.as_view(), name='instant_buy'),
 ]
