@@ -8,10 +8,10 @@ schema_view = get_schema_view(
     openapi.Info(
         title="Stock Market API",
         default_version='v1',
-        description="API для торговли акциями",
+        description="API для симуляции биржевой торговли",
     ),
     public=True,
-    permission_classes=(permissions.AllowAny,),
+    permission_classes=[permissions.AllowAny],
 )
 
 urlpatterns = [
