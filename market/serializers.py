@@ -1,12 +1,29 @@
 from rest_framework import serializers
 from .models import User, Account, Stock, Holding, Order, Trade
-from django.contrib.auth import get_user_model
 
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
-        model = get_user_model()
+        model = User
         fields = ['id', 'username', 'email']
+
+
+class UserRegistrationSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = User
+        fields = ['username', 'email', 'password']
+
+    def create(self, validated_data):
+        user = User(
+            username=validated_data['username'],
+            email=validated_data.get('email', '')
+        )
+        user.set_password(validated_data['password'])
+        user.save()
+        Account.objects.create(user=user, balance=0.0)
+        return user
 
 
 class AccountSerializer(serializers.ModelSerializer):
@@ -19,6 +36,12 @@ class StockSerializer(serializers.ModelSerializer):
     class Meta:
         model = Stock
         fields = ['id', 'symbol', 'name', 'current_price']
+
+
+class StockCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Stock
+        fields = ['symbol', 'name', 'current_price']
 
 
 class HoldingSerializer(serializers.ModelSerializer):

@@ -2,10 +2,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
 from django.contrib.auth import get_user_model
-from django.shortcuts import get_object_or_404
 from .models import Stock, Order, Trade, Account
 from .serializers import *
-from .matching import match_orders
+from django.shortcuts import get_object_or_404
+from core.matching import match_orders
 
 User = get_user_model()
 

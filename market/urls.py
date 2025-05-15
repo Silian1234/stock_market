@@ -1,20 +1,17 @@
 from django.urls import path
-from .views import (
-    RegisterView, LoginView,
-    CreateOrderView, CancelOrderView, MyOrdersView,
-    HoldingsView, TradeHistoryView, OrderBookView,
-    UserProfileView, StockListView
-)
+from .views import *
 
 urlpatterns = [
-    path('auth/register/', RegisterView.as_view(), name='register'),
-    path('auth/login/', LoginView.as_view(), name='login'),
-    path('auth/profile/', UserProfileView.as_view(), name='profile'),
-    path('orders/create/', CreateOrderView.as_view(), name='create_order'),
-    path('orders/cancel/<int:order_id>/', CancelOrderView.as_view(), name='cancel_order'),
-    path('orders/my/', MyOrdersView.as_view({'get': 'list'}), name='my_orders'),
-    path('holdings/', HoldingsView.as_view(), name='holdings'),
-    path('trades/history/', TradeHistoryView.as_view({'get': 'list'}), name='trade_history'),
-    path('orderbook/<int:stock_id>/', OrderBookView.as_view(), name='order_book'),
-    path('stocks/all/', StockListView.as_view(), name='stock_list'),
+    path("v1/register/", RegisterView.as_view()),
+    path("v1/instruments/", InstrumentListView.as_view()),
+    path("v1/instruments/<str:ticker>/orderbook/", OrderBookView.as_view()),
+    path("v1/instruments/<str:ticker>/history/", TradeHistoryView.as_view()),
+    path("v1/balance/", BalanceView.as_view()),
+    path("v1/orders/", OrderListView.as_view()),
+    path("v1/orders/place/", OrderCreateView.as_view()),
+    path("v1/orders/<int:order_id>/", OrderDetailView.as_view()),
+    path("v1/orders/<int:order_id>/cancel/", OrderCancelView.as_view()),
+
+    path("v1/admin/instruments/", AdminCreateInstrumentView.as_view()),
+    path("v1/admin/instruments/<str:ticker>/", AdminDeleteInstrumentView.as_view()),
 ]
