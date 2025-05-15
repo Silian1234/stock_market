@@ -28,8 +28,8 @@ class HoldingAdmin(admin.ModelAdmin):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ('user', 'stock', 'order_type', 'order_mode', 'quantity', 'price', 'is_filled', 'created_at')
-    list_filter = ('order_type', 'order_mode', 'is_filled')
+    list_display = ['id', 'user', 'stock', 'order_type', 'order_mode', 'price', 'status']
+    list_filter = ['order_type', 'order_mode', 'status']
     search_fields = ('user__username', 'stock__symbol')
 
 

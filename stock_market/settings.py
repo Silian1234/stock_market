@@ -56,8 +56,6 @@ DATABASES = {
     }
 }
 
-AUTH_USER_MODEL = 'market.User'
-
 AUTH_PASSWORD_VALIDATORS = []
 
 LANGUAGE_CODE = 'en-us'
@@ -70,18 +68,21 @@ STATIC_URL = '/static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework.authentication.TokenAuthentication',
-    ),
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'market.authentication.APIKeyAuthentication',
+    ],
 }
 
+AUTH_USER_MODEL = 'market.User'
+
 SWAGGER_SETTINGS = {
-    'USE_SESSION_AUTH': False,
     'SECURITY_DEFINITIONS': {
-        'Bearer': {
+        'API Key': {
             'type': 'apiKey',
             'in': 'header',
-            'name': 'Authorization'
+            'name': 'Authorization',
+            'description': 'Формат: TOKEN <твой_ключ>'
         }
     },
+    'USE_SESSION_AUTH': False,
 }

@@ -11,7 +11,9 @@ urlpatterns = [
     path("v1/orders/place/", OrderCreateView.as_view()),
     path("v1/orders/<int:order_id>/", OrderDetailView.as_view()),
     path("v1/orders/<int:order_id>/cancel/", OrderCancelView.as_view()),
-
     path("v1/admin/instruments/", AdminCreateInstrumentView.as_view()),
     path("v1/admin/instruments/<str:ticker>/", AdminDeleteInstrumentView.as_view()),
+    path('v1/public/register', RegisterView.as_view()),
+    path('v1/admin/balance/deposit', AdminDepositView.as_view()),
+    path('v1/admin/balance/withdraw', AdminWithdrawView.as_view()),
 ]

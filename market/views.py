@@ -16,10 +16,13 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = UserRegistrationSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            user = serializer.save()
+            return Response({
+                "success": True,
+                "api_key": user.api_key,
+                "user_id": str(user.id)
+            }, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 class InstrumentListView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -128,3 +131,30 @@ class AdminDeleteInstrumentView(APIView):
         stock = get_object_or_404(Stock, symbol=ticker)
         stock.delete()
         return Response({'detail': 'Instrument deleted'})
+
+class AdminDepositView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request):
+        user_id = request.data.get("user_id")
+        amount = float(request.data.get("amount", 0))
+        user = get_object_or_404(User, id=user_id)
+        account, _ = Account.objects.get_or_create(user=user)
+        account.balance += amount
+        account.save()
+        return Response({"success": True, "balance": account.balance})
+
+
+class AdminWithdrawView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request):
+        user_id = request.data.get("user_id")
+        amount = float(request.data.get("amount", 0))
+        user = get_object_or_404(User, id=user_id)
+        account = get_object_or_404(Account, user=user)
+        if account.balance < amount:
+            return Response({"success": False, "message": "Insufficient funds"}, status=400)
+        account.balance -= amount
+        account.save()
+        return Response({"success": True, "balance": account.balance})
