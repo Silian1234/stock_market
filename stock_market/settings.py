@@ -86,3 +86,6 @@ SWAGGER_SETTINGS = {
     },
     'USE_SESSION_AUTH': False,
 }
+
+APPEND_SLASH = False
+

@@ -1,160 +1,155 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
-from django.contrib.auth import get_user_model
-from django.shortcuts import get_object_or_404
-from .models import Stock, Order, Trade, Account
-from .serializers import *
-from .matching import match_orders
+from rest_framework import status
+from .serializers import (
+    UserSerializer, NewUserSerializer, InstrumentSerializer,
+    L2OrderBookSerializer, LimitOrderSerializer, MarketOrderSerializer,
+    LimitOrderBodySerializer, MarketOrderBodySerializer,
+    CreateOrderResponseSerializer, OkSerializer, TransactionSerializer
+)
+import uuid
+from datetime import datetime
 
-User = get_user_model()
-
+def http_validation_error(msg, loc=None):
+    if loc is None:
+        loc = ["body"]
+    return Response(
+        {"detail": [{"loc": loc, "msg": msg, "type": "validation_error"}]},
+        status=422
+    )
 
 class RegisterView(APIView):
-    permission_classes = [permissions.AllowAny]
-
     def post(self, request):
-        serializer = UserRegistrationSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.save()
-            return Response({
-                "success": True,
-                "api_key": user.api_key,
-                "user_id": str(user.id)
-            }, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer = NewUserSerializer(data=request.data)
+        if not serializer.is_valid():
+            return http_validation_error(serializer.errors)
+        user = {
+            "id": str(uuid.uuid4()),
+            "name": serializer.validated_data['name'],
+            "role": "USER",
+            "api_key": "key-" + str(uuid.uuid4())
+        }
+        return Response(user, status=200)
 
 class InstrumentListView(APIView):
-    permission_classes = [permissions.AllowAny]
-
     def get(self, request):
-        stocks = Stock.objects.all()
-        serializer = StockSerializer(stocks, many=True)
-        return Response(serializer.data)
+        instruments = [
+            {"name": "Memecoin", "ticker": "MEMCOIN"},
+            {"name": "Dodge", "ticker": "DODGE"}
+        ]
+        serializer = InstrumentSerializer(instruments, many=True)
+        return Response(serializer.data, status=200)
 
-
-class OrderBookView(APIView):
-    permission_classes = [permissions.AllowAny]
-
+class L2OrderBookView(APIView):
     def get(self, request, ticker):
-        stock = get_object_or_404(Stock, symbol=ticker)
-        buy_orders = Order.objects.filter(stock=stock, order_type='buy', is_filled=False).order_by('-price')[:10]
-        sell_orders = Order.objects.filter(stock=stock, order_type='sell', is_filled=False).order_by('price')[:10]
-        return Response({
-            'buy': OrderSerializer(buy_orders, many=True).data,
-            'sell': OrderSerializer(sell_orders, many=True).data
-        })
+        limit = request.GET.get("limit", 10)
+        try:
+            limit = int(limit)
+            if not (1 <= limit <= 25):
+                raise ValueError()
+        except Exception:
+            return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
+        orderbook = {
+            "bid_levels": [],
+            "ask_levels": []
+        }
+        serializer = L2OrderBookSerializer(orderbook)
+        return Response(serializer.data, status=200)
 
-
-class TradeHistoryView(APIView):
-    permission_classes = [permissions.AllowAny]
-
+class TransactionHistoryView(APIView):
     def get(self, request, ticker):
-        stock = get_object_or_404(Stock, symbol=ticker)
-        trades = Trade.objects.filter(stock=stock).order_by('-created_at')[:50]
-        return Response(TradeSerializer(trades, many=True).data)
-
+        limit = request.GET.get("limit", 10)
+        try:
+            limit = int(limit)
+            if not (1 <= limit <= 100):
+                raise ValueError()
+        except Exception:
+            return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
+        serializer = TransactionSerializer([], many=True)
+        return Response(serializer.data, status=200)
 
 class BalanceView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
     def get(self, request):
-        account = get_object_or_404(Account, user=request.user)
-        return Response(AccountSerializer(account).data)
+        data = {"MEMCOIN": 0, "DODGE": 100500}
+        return Response(data, status=200)
 
-
-class OrderCreateView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+class OrderListCreateView(APIView):
+    def get(self, request):
+        orders = []
+        return Response(orders, status=200)
 
     def post(self, request):
-        serializer = OrderCreateSerializer(data=request.data)
-        if serializer.is_valid():
-            stock = get_object_or_404(Stock, id=serializer.validated_data['stock_id'])
-            order = Order.objects.create(
-                user=request.user,
-                stock=stock,
-                order_type=serializer.validated_data['order_type'],
-                order_mode=serializer.validated_data['order_mode'],
-                price=serializer.validated_data.get('price'),
-                quantity=serializer.validated_data['quantity'],
-                remaining_quantity=serializer.validated_data['quantity']
-            )
-            match_orders(order)
-            return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-class OrderListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request):
-        orders = Order.objects.filter(user=request.user)
-        return Response(OrderSerializer(orders, many=True).data)
-
+        body = request.data
+        if "price" in body:
+            serializer = LimitOrderBodySerializer(data=body)
+        else:
+            serializer = MarketOrderBodySerializer(data=body)
+        if not serializer.is_valid():
+            return http_validation_error(serializer.errors)
+        response = {
+            "success": True,
+            "order_id": str(uuid.uuid4())
+        }
+        return Response(response, status=200)
 
 class OrderDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
     def get(self, request, order_id):
-        order = get_object_or_404(Order, id=order_id, user=request.user)
-        return Response(OrderSerializer(order).data)
+        order = {
+            "id": str(order_id),
+            "status": "NEW",
+            "user_id": str(uuid.uuid4()),
+            "timestamp": datetime.utcnow().isoformat(),
+            "body": {
+                "direction": "BUY",
+                "ticker": "MEMCOIN",
+                "qty": 1,
+                "price": 100
+            },
+            "filled": 0
+        }
+        serializer = LimitOrderSerializer(order)
+        return Response(serializer.data, status=200)
 
+    def delete(self, request, order_id):
+        ok = {"success": True}
+        return Response(ok, status=200)
 
-class OrderCancelView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+class AdminUserDeleteView(APIView):
+    def delete(self, request, user_id):
+        user = {
+            "id": str(user_id),
+            "name": "test",
+            "role": "USER",
+            "api_key": "key-" + str(uuid.uuid4())
+        }
+        serializer = UserSerializer(user)
+        return Response(serializer.data, status=200)
 
-    def post(self, request, order_id):
-        order = get_object_or_404(Order, id=order_id, user=request.user)
-        if order.is_filled:
-            return Response({'detail': 'Order already filled'}, status=status.HTTP_400_BAD_REQUEST)
-        order.is_filled = True
-        order.remaining_quantity = 0
-        order.save()
-        return Response({'detail': 'Order cancelled successfully'})
-
-
-class AdminCreateInstrumentView(APIView):
-    permission_classes = [permissions.IsAdminUser]
-
+class AdminInstrumentCreateView(APIView):
     def post(self, request):
-        serializer = StockCreateSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer = InstrumentSerializer(data=request.data)
+        if not serializer.is_valid():
+            return http_validation_error(serializer.errors)
+        ok = {"success": True}
+        return Response(ok, status=200)
 
-
-class AdminDeleteInstrumentView(APIView):
-    permission_classes = [permissions.IsAdminUser]
-
+class AdminInstrumentDeleteView(APIView):
     def delete(self, request, ticker):
-        stock = get_object_or_404(Stock, symbol=ticker)
-        stock.delete()
-        return Response({'detail': 'Instrument deleted'})
+        ok = {"success": True}
+        return Response(ok, status=200)
 
-class AdminDepositView(APIView):
-    permission_classes = [permissions.IsAdminUser]
-
+class AdminBalanceDepositView(APIView):
     def post(self, request):
-        user_id = request.data.get("user_id")
-        amount = float(request.data.get("amount", 0))
-        user = get_object_or_404(User, id=user_id)
-        account, _ = Account.objects.get_or_create(user=user)
-        account.balance += amount
-        account.save()
-        return Response({"success": True, "balance": account.balance})
+        body = request.data
+        if "user_id" not in body or "ticker" not in body or "amount" not in body:
+            return http_validation_error("user_id, ticker и amount обязательны")
+        ok = {"success": True}
+        return Response(ok, status=200)
 
-
-class AdminWithdrawView(APIView):
-    permission_classes = [permissions.IsAdminUser]
-
+class AdminBalanceWithdrawView(APIView):
     def post(self, request):
-        user_id = request.data.get("user_id")
-        amount = float(request.data.get("amount", 0))
-        user = get_object_or_404(User, id=user_id)
-        account = get_object_or_404(Account, user=user)
-        if account.balance < amount:
-            return Response({"success": False, "message": "Insufficient funds"}, status=400)
-        account.balance -= amount
-        account.save()
-        return Response({"success": True, "balance": account.balance})
+        body = request.data
+        if "user_id" not in body or "ticker" not in body or "amount" not in body:
+            return http_validation_error("user_id, ticker и amount обязательны")
+        ok = {"success": True}
+        return Response(ok, status=200)
