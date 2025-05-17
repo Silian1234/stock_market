@@ -1,5 +1,6 @@
 import sys
 
+from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
@@ -23,21 +24,23 @@ def http_validation_error(msg, loc=None):
         status=422
     )
 
-class RegisterView(APIView):
-    parser_classes = [JSONParser]
+User = get_user_model()
 
-    @swagger_auto_schema(request_body=NewUserSerializer, responses={200: UserSerializer})
+class RegisterView(APIView):
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
     def post(self, request):
         serializer = NewUserSerializer(data=request.data)
         if not serializer.is_valid():
-            return http_validation_error(serializer.errors)
-        user = {
-            "id": str(uuid.uuid4()),
-            "name": serializer.validated_data['name'],
-            "role": "USER",
-            "api_key": "key-" + str(uuid.uuid4())
+            return Response(serializer.errors, status=422)
+        username = serializer.validated_data['name']
+        user = User.objects.create_user(username=username)
+        data = {
+            "id": str(user.id),
+            "name": user.username,
+            "api_key": user.api_key,
         }
-        return Response(user, status=200)
+        return Response(data, status=200)
 
 class InstrumentListView(APIView):
     def get(self, request):
