@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
-from rest_framework.parsers import FormParser
+from rest_framework.parsers import *
 from drf_yasg.utils import swagger_auto_schema
 from .serializers import (
     UserSerializer, NewUserSerializer, InstrumentSerializer,
@@ -22,7 +22,8 @@ def http_validation_error(msg, loc=None):
     )
 
 class RegisterView(APIView):
-    parser_classes = [FormParser]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
     @swagger_auto_schema(request_body=NewUserSerializer, responses={200: UserSerializer})
     def post(self, request):
         serializer = NewUserSerializer(data=request.data)
@@ -82,7 +83,8 @@ class BalanceView(APIView):
 
 class OrderListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    parser_classes = [FormParser]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
 
     def get(self, request):
         orders = []
@@ -141,7 +143,8 @@ class AdminUserDeleteView(APIView):
 
 class AdminInstrumentCreateView(APIView):
     permission_classes = [permissions.IsAdminUser]
-    parser_classes = [FormParser]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
 
     @swagger_auto_schema(request_body=InstrumentSerializer, responses={200: OkSerializer})
     def post(self, request):
@@ -159,7 +162,8 @@ class AdminInstrumentDeleteView(APIView):
 
 class AdminBalanceDepositView(APIView):
     permission_classes = [permissions.IsAdminUser]
-    parser_classes = [FormParser]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
 
     @swagger_auto_schema(request_body=DepositSerializer, responses={200: OkSerializer})
     def post(self, request):
@@ -171,7 +175,8 @@ class AdminBalanceDepositView(APIView):
 
 class AdminBalanceWithdrawView(APIView):
     permission_classes = [permissions.IsAdminUser]
-    parser_classes = [FormParser]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
 
     @swagger_auto_schema(request_body=WithdrawSerializer, responses={200: OkSerializer})
     def post(self, request):
