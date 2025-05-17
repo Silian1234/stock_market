@@ -1,160 +1,155 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
-from rest_framework.authtoken.models import Token
-from django.contrib.auth import authenticate
-from drf_yasg.utils import swagger_auto_schema
-from rest_framework.viewsets import ModelViewSet
-from .services import process_order
-
+from rest_framework import status
 from .serializers import (
-    OrderCreateSerializer, OrderSerializer,
-    UserRegistrationSerializer, LoginSerializer
+    UserSerializer, NewUserSerializer, InstrumentSerializer,
+    L2OrderBookSerializer, LimitOrderSerializer, MarketOrderSerializer,
+    LimitOrderBodySerializer, MarketOrderBodySerializer,
+    CreateOrderResponseSerializer, OkSerializer, TransactionSerializer
 )
-from .models import Stock, Account, Order
-from core.matching import MatchingEngine
+import uuid
+from datetime import datetime
 
-matching_engine = MatchingEngine()
-
-class WelcomeView(APIView):
-    def get(self, request):
-        return Response({"message": "Welcome to the Stock Market API!"})
-
-class CreateOrderView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    @swagger_auto_schema(
-        request_body=OrderCreateSerializer,
-        responses={201: OrderSerializer},
-        operation_description="Создание заявки на покупку или продажу (лимитной или рыночной)"
+def http_validation_error(msg, loc=None):
+    if loc is None:
+        loc = ["body"]
+    return Response(
+        {"detail": [{"loc": loc, "msg": msg, "type": "validation_error"}]},
+        status=422
     )
-    def post(self, request):
-        serializer = OrderCreateSerializer(data=request.data)
-        if serializer.is_valid():
-            data = serializer.validated_data
-            stock_id = data.get('stock_id')
-            quantity = data.get('quantity')
-            side = data.get('side')
-            order_type = data.get('order_type')
-            price = data.get('price')
-            try:
-                stock = Stock.objects.get(id=stock_id)
-            except Stock.DoesNotExist:
-                return Response({"detail": "Stock not found."}, status=status.HTTP_404_NOT_FOUND)
-            try:
-                account = Account.objects.get(user=request.user, currency="USD")
-            except Account.DoesNotExist:
-                return Response({"detail": "Account not found. Create a USD account first."}, status=status.HTTP_400_BAD_REQUEST)
-            if order_type == "MARKET" and side == "BUY":
-                estimated_cost = stock.initial_price * quantity
-                if account.balance < estimated_cost:
-                    return Response({"detail": "Insufficient balance."}, status=status.HTTP_400_BAD_REQUEST)
-            order_price = price if order_type == "LIMIT" else stock.initial_price
-            order = Order.objects.create(
-                user=request.user,
-                stock=stock,
-                order_type=order_type,
-                side=side,
-                price=order_price,
-                quantity=quantity
-            )
-            matching_engine.match_orders(order)
-            order_serializer = OrderSerializer(order)
-            return Response(order_serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class RegisterView(APIView):
-    @swagger_auto_schema(request_body=UserRegistrationSerializer)
     def post(self, request):
-        serializer = UserRegistrationSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.save()
-            token, _ = Token.objects.get_or_create(user=user)
-            return Response({"token": token.key}, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer = NewUserSerializer(data=request.data)
+        if not serializer.is_valid():
+            return http_validation_error(serializer.errors)
+        user = {
+            "id": str(uuid.uuid4()),
+            "name": serializer.validated_data['name'],
+            "role": "USER",
+            "api_key": "key-" + str(uuid.uuid4())
+        }
+        return Response(user, status=200)
 
-class LoginView(APIView):
-    @swagger_auto_schema(request_body=LoginSerializer)
-    def post(self, request):
-        username = request.data.get("username")
-        password = request.data.get("password")
-        user = authenticate(username=username, password=password)
-        if user:
-            token, _ = Token.objects.get_or_create(user=user)
-            return Response({"token": token.key})
-        return Response({"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
-
-
-class OrderViewSet(ModelViewSet):
-    queryset = Order.objects.all()
-    serializer_class = OrderSerializer
-
-    @swagger_auto_schema(
-        request_body=OrderSerializer,
-        operation_description="Создать заявку (лимитную или рыночную) на покупку или продажу акций",
-        responses={201: OrderSerializer}
-    )
-    def create(self, request, *args, **kwargs):
-        response = super().create(request, *args, **kwargs)
-        return response
-
-    def perform_create(self, serializer):
-        order = serializer.save(remaining_quantity=serializer.validated_data['quantity'])
-        process_order(order)
-
-class MyOrdersView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    @swagger_auto_schema(
-        operation_description="Получить список всех заявок текущего пользователя",
-        responses={200: OrderSerializer(many=True)}
-    )
+class InstrumentListView(APIView):
     def get(self, request):
-        orders = Order.objects.filter(user=request.user).order_by('-created_at')
-        serializer = OrderSerializer(orders, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        instruments = [
+            {"name": "Memecoin", "ticker": "MEMCOIN"},
+            {"name": "Dodge", "ticker": "DODGE"}
+        ]
+        serializer = InstrumentSerializer(instruments, many=True)
+        return Response(serializer.data, status=200)
 
-class InstantBuyView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+class L2OrderBookView(APIView):
+    def get(self, request, ticker):
+        limit = request.GET.get("limit", 10)
+        try:
+            limit = int(limit)
+            if not (1 <= limit <= 25):
+                raise ValueError()
+        except Exception:
+            return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
+        orderbook = {
+            "bid_levels": [],
+            "ask_levels": []
+        }
+        serializer = L2OrderBookSerializer(orderbook)
+        return Response(serializer.data, status=200)
 
-    @swagger_auto_schema(
-        request_body=OrderCreateSerializer,
-        responses={201: OrderSerializer},
-        operation_description="Мгновенная покупка акций по рыночной цене"
-    )
+class TransactionHistoryView(APIView):
+    def get(self, request, ticker):
+        limit = request.GET.get("limit", 10)
+        try:
+            limit = int(limit)
+            if not (1 <= limit <= 100):
+                raise ValueError()
+        except Exception:
+            return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
+        serializer = TransactionSerializer([], many=True)
+        return Response(serializer.data, status=200)
+
+class BalanceView(APIView):
+    def get(self, request):
+        data = {"MEMCOIN": 0, "DODGE": 100500}
+        return Response(data, status=200)
+
+class OrderListCreateView(APIView):
+    def get(self, request):
+        orders = []
+        return Response(orders, status=200)
+
     def post(self, request):
-        serializer = OrderCreateSerializer(data=request.data)
-        if serializer.is_valid():
-            data = serializer.validated_data
-            stock_id = data.get('stock_id')
-            quantity = data.get('quantity')
+        body = request.data
+        if "price" in body:
+            serializer = LimitOrderBodySerializer(data=body)
+        else:
+            serializer = MarketOrderBodySerializer(data=body)
+        if not serializer.is_valid():
+            return http_validation_error(serializer.errors)
+        response = {
+            "success": True,
+            "order_id": str(uuid.uuid4())
+        }
+        return Response(response, status=200)
 
-            try:
-                stock = Stock.objects.get(id=stock_id)
-            except Stock.DoesNotExist:
-                return Response({"detail": "Stock not found."}, status=status.HTTP_404_NOT_FOUND)
+class OrderDetailView(APIView):
+    def get(self, request, order_id):
+        order = {
+            "id": str(order_id),
+            "status": "NEW",
+            "user_id": str(uuid.uuid4()),
+            "timestamp": datetime.utcnow().isoformat(),
+            "body": {
+                "direction": "BUY",
+                "ticker": "MEMCOIN",
+                "qty": 1,
+                "price": 100
+            },
+            "filled": 0
+        }
+        serializer = LimitOrderSerializer(order)
+        return Response(serializer.data, status=200)
 
-            try:
-                account = Account.objects.get(user=request.user, currency="USD")
-            except Account.DoesNotExist:
-                return Response({"detail": "Account not found."}, status=status.HTTP_400_BAD_REQUEST)
+    def delete(self, request, order_id):
+        ok = {"success": True}
+        return Response(ok, status=200)
 
-            estimated_cost = stock.initial_price * quantity
-            if account.balance < estimated_cost:
-                return Response({"detail": "Insufficient balance."}, status=status.HTTP_400_BAD_REQUEST)
+class AdminUserDeleteView(APIView):
+    def delete(self, request, user_id):
+        user = {
+            "id": str(user_id),
+            "name": "test",
+            "role": "USER",
+            "api_key": "key-" + str(uuid.uuid4())
+        }
+        serializer = UserSerializer(user)
+        return Response(serializer.data, status=200)
 
-            order = Order.objects.create(
-                user=request.user,
-                stock=stock,
-                order_type="buy",
-                order_mode="market",
-                price=None,
-                quantity=quantity,
-                remaining_quantity=quantity
-            )
+class AdminInstrumentCreateView(APIView):
+    def post(self, request):
+        serializer = InstrumentSerializer(data=request.data)
+        if not serializer.is_valid():
+            return http_validation_error(serializer.errors)
+        ok = {"success": True}
+        return Response(ok, status=200)
 
-            matching_engine.match_orders(order)
+class AdminInstrumentDeleteView(APIView):
+    def delete(self, request, ticker):
+        ok = {"success": True}
+        return Response(ok, status=200)
 
-            return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
+class AdminBalanceDepositView(APIView):
+    def post(self, request):
+        body = request.data
+        if "user_id" not in body or "ticker" not in body or "amount" not in body:
+            return http_validation_error("user_id, ticker и amount обязательны")
+        ok = {"success": True}
+        return Response(ok, status=200)
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+class AdminBalanceWithdrawView(APIView):
+    def post(self, request):
+        body = request.data
+        if "user_id" not in body or "ticker" not in body or "amount" not in body:
+            return http_validation_error("user_id, ticker и amount обязательны")
+        ok = {"success": True}
+        return Response(ok, status=200)

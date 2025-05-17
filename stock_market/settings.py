@@ -5,7 +5,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY', 'your_secret_key_here')
 DEBUG = True
 ALLOWED_HOSTS = []
-AUTH_USER_MODEL = 'market.User'
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -53,35 +52,40 @@ WSGI_APPLICATION = 'stock_market.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'stock_market.db',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
 
-AUTH_PASSWORD_VALIDATORS = [
-    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',},
-    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',},
-]
+AUTH_PASSWORD_VALIDATORS = []
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
+
 STATIC_URL = '/static/'
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'market.authentication.BearerTokenAuthentication',
-    ),
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'market.authentication.APIKeyAuthentication',
+    ],
 }
 
+AUTH_USER_MODEL = 'market.User'
+
 SWAGGER_SETTINGS = {
-    'USE_SESSION_AUTH': False,
     'SECURITY_DEFINITIONS': {
-        'Bearer': {
+        'API Key': {
             'type': 'apiKey',
-            'in':   'header',
+            'in': 'header',
             'name': 'Authorization',
-        },
+            'description': 'Формат: TOKEN <твой_ключ>'
+        }
     },
+    'USE_SESSION_AUTH': False,
 }
+
+APPEND_SLASH = False
+
