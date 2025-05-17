@@ -1,3 +1,5 @@
+import sys
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
@@ -22,7 +24,7 @@ def http_validation_error(msg, loc=None):
     )
 
 class RegisterView(APIView):
-    parser_classes = [JSONParser, FormParser, MultiPartParser]
+    parser_classes = [JSONParser]
 
     @swagger_auto_schema(request_body=NewUserSerializer, responses={200: UserSerializer})
     def post(self, request):
@@ -83,7 +85,7 @@ class BalanceView(APIView):
 
 class OrderListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    parser_classes = [JSONParser, FormParser, MultiPartParser]
+    parser_classes = [JSONParser]
 
 
     def get(self, request):
@@ -143,11 +145,18 @@ class AdminUserDeleteView(APIView):
 
 class AdminInstrumentCreateView(APIView):
     permission_classes = [permissions.IsAdminUser]
-    parser_classes = [JSONParser, FormParser, MultiPartParser]
+    parser_classes = [JSONParser]
 
 
     @swagger_auto_schema(request_body=InstrumentSerializer, responses={200: OkSerializer})
     def post(self, request):
+        print(
+            f"\n>>> REQUEST LOG: {request.method} {request.get_full_path()}\n"
+            f"Headers: {dict(request.headers)}\n"
+            f"Content-Type: {request.content_type}\n"
+            f"Body: {request.body.decode(errors='replace')}\n",
+            file=sys.stderr
+        )
         serializer = InstrumentSerializer(data=request.data)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
@@ -162,7 +171,7 @@ class AdminInstrumentDeleteView(APIView):
 
 class AdminBalanceDepositView(APIView):
     permission_classes = [permissions.IsAdminUser]
-    parser_classes = [JSONParser, FormParser, MultiPartParser]
+    parser_classes = [JSONParser]
 
 
     @swagger_auto_schema(request_body=DepositSerializer, responses={200: OkSerializer})
@@ -175,7 +184,7 @@ class AdminBalanceDepositView(APIView):
 
 class AdminBalanceWithdrawView(APIView):
     permission_classes = [permissions.IsAdminUser]
-    parser_classes = [JSONParser, FormParser, MultiPartParser]
+    parser_classes = [JSONParser]
 
 
     @swagger_auto_schema(request_body=WithdrawSerializer, responses={200: OkSerializer})
