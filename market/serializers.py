@@ -1,72 +1,76 @@
-# market/serializers.py
-
 from rest_framework import serializers
-import uuid
-
-class UserSerializer(serializers.Serializer):
-    id = serializers.UUIDField(format='hex_verbose')
-    name = serializers.CharField()
-    role = serializers.ChoiceField(choices=[('USER', 'USER'), ('ADMIN', 'ADMIN')])
-    api_key = serializers.CharField()
 
 class NewUserSerializer(serializers.Serializer):
-    name = serializers.CharField(min_length=3)
+    name = serializers.CharField(max_length=100, required=True)
+
+class UserSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    name = serializers.CharField()
+    role = serializers.CharField()
+    api_key = serializers.CharField()
 
 class InstrumentSerializer(serializers.Serializer):
-    name = serializers.CharField()
-    ticker = serializers.RegexField(regex=r'^[A-Z]{2,10}$')
+    name = serializers.CharField(max_length=100)
+    ticker = serializers.CharField(max_length=20)
 
-class LevelSerializer(serializers.Serializer):
-    price = serializers.IntegerField()
-    qty = serializers.IntegerField()
+class L2LevelSerializer(serializers.Serializer):
+    price = serializers.FloatField()
+    qty = serializers.FloatField()
 
 class L2OrderBookSerializer(serializers.Serializer):
-    bid_levels = LevelSerializer(many=True)
-    ask_levels = LevelSerializer(many=True)
-
-class LimitOrderBodySerializer(serializers.Serializer):
-    direction = serializers.ChoiceField(choices=[('BUY', 'BUY'), ('SELL', 'SELL')])
-    ticker = serializers.CharField()
-    qty = serializers.IntegerField(min_value=1)
-    price = serializers.IntegerField(min_value=1)
-
-class MarketOrderBodySerializer(serializers.Serializer):
-    direction = serializers.ChoiceField(choices=[('BUY', 'BUY'), ('SELL', 'SELL')])
-    ticker = serializers.CharField()
-    qty = serializers.IntegerField(min_value=1)
-
-class LimitOrderSerializer(serializers.Serializer):
-    id = serializers.UUIDField(format='hex_verbose')
-    status = serializers.ChoiceField(choices=[('NEW','NEW'),('EXECUTED','EXECUTED'),('PARTIALLY_EXECUTED','PARTIALLY_EXECUTED'),('CANCELLED','CANCELLED')])
-    user_id = serializers.UUIDField(format='hex_verbose')
-    timestamp = serializers.DateTimeField()
-    body = LimitOrderBodySerializer()
-    filled = serializers.IntegerField(default=0)
-
-class MarketOrderSerializer(serializers.Serializer):
-    id = serializers.UUIDField(format='hex_verbose')
-    status = serializers.ChoiceField(choices=[('NEW','NEW'),('EXECUTED','EXECUTED'),('PARTIALLY_EXECUTED','PARTIALLY_EXECUTED'),('CANCELLED','CANCELLED')])
-    user_id = serializers.UUIDField(format='hex_verbose')
-    timestamp = serializers.DateTimeField()
-    body = MarketOrderBodySerializer()
-
-class CreateOrderResponseSerializer(serializers.Serializer):
-    success = serializers.BooleanField(default=True)
-    order_id = serializers.UUIDField(format='hex_verbose')
-
-class OkSerializer(serializers.Serializer):
-    success = serializers.BooleanField(default=True)
+    bid_levels = L2LevelSerializer(many=True)
+    ask_levels = L2LevelSerializer(many=True)
 
 class TransactionSerializer(serializers.Serializer):
-    ticker = serializers.CharField()
-    amount = serializers.IntegerField()
-    price = serializers.IntegerField()
+    id = serializers.CharField()
     timestamp = serializers.DateTimeField()
+    ticker = serializers.CharField()
+    qty = serializers.FloatField()
+    price = serializers.FloatField()
+    direction = serializers.ChoiceField(choices=["BUY", "SELL"])
+    order_id = serializers.CharField()
+    user_id = serializers.CharField()
 
-class ValidationErrorSerializer(serializers.Serializer):
-    loc = serializers.ListField(child=serializers.CharField())
-    msg = serializers.CharField()
-    type = serializers.CharField()
+class LimitOrderBodySerializer(serializers.Serializer):
+    direction = serializers.ChoiceField(choices=["BUY", "SELL"])
+    ticker = serializers.CharField()
+    qty = serializers.FloatField()
+    price = serializers.FloatField()
 
-class HTTPValidationErrorSerializer(serializers.Serializer):
-    detail = ValidationErrorSerializer(many=True)
+class MarketOrderBodySerializer(serializers.Serializer):
+    direction = serializers.ChoiceField(choices=["BUY", "SELL"])
+    ticker = serializers.CharField()
+    qty = serializers.FloatField()
+
+class CreateOrderResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    order_id = serializers.CharField()
+
+class LimitOrderSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    status = serializers.CharField()
+    user_id = serializers.CharField()
+    timestamp = serializers.CharField()
+    body = LimitOrderBodySerializer()
+    filled = serializers.FloatField()
+
+class MarketOrderSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    status = serializers.CharField()
+    user_id = serializers.CharField()
+    timestamp = serializers.CharField()
+    body = MarketOrderBodySerializer()
+    filled = serializers.FloatField()
+
+class OkSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+
+class DepositSerializer(serializers.Serializer):
+    user_id = serializers.CharField()
+    ticker = serializers.CharField()
+    amount = serializers.FloatField()
+
+class WithdrawSerializer(serializers.Serializer):
+    user_id = serializers.CharField()
+    ticker = serializers.CharField()
+    amount = serializers.FloatField()

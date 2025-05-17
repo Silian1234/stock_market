@@ -4,7 +4,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY', 'your_secret_key_here')
 DEBUG = True
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1:8000', '127.0.0.1', 'pseudo-stock.org', 'www.pseudo-stock.org']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -72,6 +72,11 @@ REST_FRAMEWORK = {
         'market.authentication.APIKeyAuthentication',
     ],
 }
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://pseudo-stock.org",
+    "https://www.pseudo-stock.org",
+]
 
 AUTH_USER_MODEL = 'market.User'
 
