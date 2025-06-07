@@ -6,6 +6,10 @@ import uuid
 class User(AbstractUser):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     api_key = models.CharField(max_length=100, unique=True)
+    class Roles(models.TextChoices):
+        USER = "USER", "User"
+        ADMIN = "ADMIN", "Admin"
+    role = models.CharField(max_length=10, choices=Roles.choices, default=Roles.USER)
 
     def save(self, *args, **kwargs):
         if not self.api_key:

@@ -1,7 +1,9 @@
 from rest_framework import serializers
+from .models import User
 
 class NewUserSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, required=True)
+    role = serializers.ChoiceField(choices=User.Roles.choices, default=User.Roles.USER)
 
 class UserSerializer(serializers.Serializer):
     id = serializers.CharField()
