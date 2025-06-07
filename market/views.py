@@ -34,10 +34,12 @@ class RegisterView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=422)
         username = serializer.validated_data['name']
-        user = User.objects.create_user(username=username)
+        role = serializer.validated_data.get('role', User.Roles.USER)
+        user = User.objects.create_user(username=username, role=role)
         data = {
             "id": str(user.id),
             "name": user.username,
+            "role": user.role,
             "api_key": user.api_key,
         }
         return Response(data, status=200)

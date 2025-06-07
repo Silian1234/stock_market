@@ -4,9 +4,9 @@ from .models import User, Account, Stock, Order, Trade
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
-    list_display = ('id', 'username', 'email', 'is_active', 'is_staff', 'api_key')
+    list_display = ('id', 'username', 'email', 'role', 'is_active', 'is_staff', 'api_key')
     search_fields = ('username', 'email')
-    list_filter = ('is_active', 'is_staff')
+    list_filter = ('is_active', 'is_staff', 'role')
 
 
 @admin.register(Account)
