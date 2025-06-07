@@ -88,7 +88,8 @@ class BalanceView(APIView):
 
 class OrderListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    parser_classes = [JSONParser]
+    # Allow both JSON and form-urlencoded input to avoid 415 errors in tests
+    parser_classes = [JSONParser, FormParser]
 
 
     def get(self, request):
@@ -148,7 +149,8 @@ class AdminUserDeleteView(APIView):
 
 class AdminInstrumentCreateView(APIView):
     permission_classes = [permissions.IsAdminUser]
-    parser_classes = [JSONParser]
+    # Support JSON and form data
+    parser_classes = [JSONParser, FormParser]
 
 
     @swagger_auto_schema(request_body=InstrumentSerializer, responses={200: OkSerializer})
@@ -174,7 +176,7 @@ class AdminInstrumentDeleteView(APIView):
 
 class AdminBalanceDepositView(APIView):
     permission_classes = [permissions.IsAdminUser]
-    parser_classes = [JSONParser]
+    parser_classes = [JSONParser, FormParser]
 
 
     @swagger_auto_schema(request_body=DepositSerializer, responses={200: OkSerializer})
@@ -187,7 +189,7 @@ class AdminBalanceDepositView(APIView):
 
 class AdminBalanceWithdrawView(APIView):
     permission_classes = [permissions.IsAdminUser]
-    parser_classes = [JSONParser]
+    parser_classes = [JSONParser, FormParser]
 
 
     @swagger_auto_schema(request_body=WithdrawSerializer, responses={200: OkSerializer})
