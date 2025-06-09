@@ -36,7 +36,8 @@ class RegisterView(APIView):
             return Response(serializer.errors, status=422)
         username = serializer.validated_data['name']
         role = serializer.validated_data.get('role', User.Roles.USER)
-        user = User.objects.create_user(username=username, role=role)
+        is_staff = role == User.Roles.ADMIN
+        user = User.objects.create_user(username=username, role=role, is_staff=is_staff)
         data = {
             "id": str(user.id),
             "name": user.username,
