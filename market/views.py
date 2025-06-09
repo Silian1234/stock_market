@@ -29,13 +29,15 @@ User = get_user_model()
 class RegisterView(APIView):
     parser_classes = [JSONParser, FormParser, MultiPartParser]
 
+    @swagger_auto_schema(request_body=NewUserSerializer, responses={200: UserSerializer})
     def post(self, request):
         serializer = NewUserSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=422)
         username = serializer.validated_data['name']
         role = serializer.validated_data.get('role', User.Roles.USER)
-        user = User.objects.create_user(username=username, role=role)
+        is_staff = role == User.Roles.ADMIN
+        user = User.objects.create_user(username=username, role=role, is_staff=is_staff)
         data = {
             "id": str(user.id),
             "name": user.username,
@@ -90,8 +92,8 @@ class BalanceView(APIView):
 
 class OrderListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    # Allow both JSON and form-urlencoded input to avoid 415 errors in tests
-    parser_classes = [JSONParser, FormParser]
+    # Accept JSON, form-urlencoded and multipart form data
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
 
 
     def get(self, request):
@@ -151,8 +153,8 @@ class AdminUserDeleteView(APIView):
 
 class AdminInstrumentCreateView(APIView):
     permission_classes = [permissions.IsAdminUser]
-    # Support JSON and form data
-    parser_classes = [JSONParser, FormParser]
+    # Support JSON, form and multipart data
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
 
 
     @swagger_auto_schema(request_body=InstrumentSerializer, responses={200: OkSerializer})
@@ -178,7 +180,7 @@ class AdminInstrumentDeleteView(APIView):
 
 class AdminBalanceDepositView(APIView):
     permission_classes = [permissions.IsAdminUser]
-    parser_classes = [JSONParser, FormParser]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
 
 
     @swagger_auto_schema(request_body=DepositSerializer, responses={200: OkSerializer})
@@ -191,7 +193,7 @@ class AdminBalanceDepositView(APIView):
 
 class AdminBalanceWithdrawView(APIView):
     permission_classes = [permissions.IsAdminUser]
-    parser_classes = [JSONParser, FormParser]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
 
 
     @swagger_auto_schema(request_body=WithdrawSerializer, responses={200: OkSerializer})
