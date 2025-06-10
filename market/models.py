@@ -15,6 +15,9 @@ class User(AbstractUser):
         if not self.api_key:
             import secrets
             self.api_key = secrets.token_hex(20)
+        # Keep is_staff in sync with the chosen role so admin users are
+        # recognized by `IsAdminUser` permission checks.
+        self.is_staff = self.role == self.Roles.ADMIN
         super().save(*args, **kwargs)
 
 
