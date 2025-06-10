@@ -42,6 +42,9 @@ def _match_market(order):
         counter = orders[i]
         available = _remaining(counter)
         trade_qty = min(qty, available)
+        if trade_qty <= 0:
+            i += 1
+            continue
         qty -= trade_qty
         order["filled"] += trade_qty
         counter["filled"] += trade_qty
@@ -58,10 +61,13 @@ def _match_market(order):
         if _remaining(counter) == 0:
             counter["status"] = "EXECUTED"
             orders.pop(i)
-            continue
-        i += 1
+        else:
+            counter["status"] = "PARTIALLY_EXECUTED"
+            i += 1
     if _remaining(order) == 0:
         order["status"] = "EXECUTED"
+    elif order["filled"] > 0:
+        order["status"] = "PARTIALLY_EXECUTED"
 
 
 def _match_limit(order):
@@ -80,6 +86,9 @@ def _match_limit(order):
                 break
             available = _remaining(counter)
             trade_qty = min(qty, available)
+            if trade_qty <= 0:
+                i += 1
+                continue
             qty -= trade_qty
             order["filled"] += trade_qty
             counter["filled"] += trade_qty
@@ -96,9 +105,12 @@ def _match_limit(order):
             if _remaining(counter) == 0:
                 counter["status"] = "EXECUTED"
                 orders.pop(i)
-                continue
-            i += 1
+            else:
+                counter["status"] = "PARTIALLY_EXECUTED"
+                i += 1
         if _remaining(order) > 0:
+            if order["filled"] > 0:
+                order["status"] = "PARTIALLY_EXECUTED"
             book["BUY"].append(order)
             book["BUY"].sort(key=lambda o: o["body"]["price"], reverse=True)
         else:
@@ -113,15 +125,32 @@ def _match_limit(order):
                 break
             available = _remaining(counter)
             trade_qty = min(qty, available)
+            if trade_qty <= 0:
+                i += 1
+                continue
             qty -= trade_qty
             order["filled"] += trade_qty
             counter["filled"] += trade_qty
+            TRADES.append({
+                "id": str(uuid.uuid4()),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "ticker": ticker,
+                "qty": trade_qty,
+                "price": counter["body"].get("price", 0),
+                "direction": direction,
+                "order_id": order["id"],
+                "user_id": order["user_id"],
+            })
             if _remaining(counter) == 0:
                 counter["status"] = "EXECUTED"
                 orders.pop(i)
-                continue
-            i += 1
+            else:
+                counter["status"] = "PARTIALLY_EXECUTED"
+                i += 1
         if _remaining(order) > 0:
+            if order["filled"] > 0:
+                order["status"] = "PARTIALLY_EXECUTED"
+
             book["SELL"].append(order)
             book["SELL"].sort(key=lambda o: o["body"]["price"])
         else:
