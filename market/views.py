@@ -17,6 +17,9 @@ import uuid
 from datetime import datetime, timezone
 from collections import defaultdict
 
+def utcnow():
+    """Return current UTC time as an ISO string with timezone."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 ORDERS = {}
 ORDER_BOOK = defaultdict(lambda: {"BUY": [], "SELL": []})
 TRADES = []
@@ -51,7 +54,7 @@ def _match_market(order):
         counter["filled"] += trade_qty
         TRADES.append({
             "id": str(uuid.uuid4()),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": utcnow(),
             "ticker": ticker,
             "qty": trade_qty,
             "price": counter["body"].get("price", 0),
@@ -95,7 +98,7 @@ def _match_limit(order):
             counter["filled"] += trade_qty
             TRADES.append({
                 "id": str(uuid.uuid4()),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": utcnow(),
                 "ticker": ticker,
                 "qty": trade_qty,
                 "price": counter["body"].get("price", 0),
@@ -134,7 +137,7 @@ def _match_limit(order):
             counter["filled"] += trade_qty
             TRADES.append({
                 "id": str(uuid.uuid4()),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": utcnow(),
                 "ticker": ticker,
                 "qty": trade_qty,
                 "price": counter["body"].get("price", 0),
@@ -151,7 +154,6 @@ def _match_limit(order):
         if _remaining(order) > 0:
             if order["filled"] > 0:
                 order["status"] = "PARTIALLY_EXECUTED"
-
             book["SELL"].append(order)
             book["SELL"].sort(key=lambda o: o["body"]["price"])
         else:
@@ -214,8 +216,7 @@ class L2OrderBookView(APIView):
         except Exception:
             return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
         book = ORDER_BOOK[ticker]
-        user_id = str(request.user.id)
-        data = dict(BALANCES[user_id])
+        bids = sorted(book["BUY"], key=lambda o: o["body"]["price"], reverse=True)[:limit]
         asks = sorted(book["SELL"], key=lambda o: o["body"]["price"])[:limit]
         orderbook = {
             "bid_levels": [{"price": o["body"]["price"], "qty": _remaining(o)} for o in bids],
@@ -241,7 +242,8 @@ class TransactionHistoryView(APIView):
 class BalanceView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     def get(self, request):
-        data = {"MEMCOIN": 0, "DODGE": 100500}
+        user_id = str(request.user.id)
+        data = dict(BALANCES[user_id])
         return Response(data, status=200)
 
 class OrderListCreateView(APIView):
@@ -270,7 +272,7 @@ class OrderListCreateView(APIView):
             "id": order_id,
             "status": "NEW",
             "user_id": str(request.user.id),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": utcnow(),
             "body": dict(serializer.validated_data),
             "filled": 0.0,
         }
@@ -361,6 +363,10 @@ class AdminBalanceDepositView(APIView):
         serializer = DepositSerializer(data=request.data)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
+        user_id = serializer.validated_data["user_id"]
+        ticker = serializer.validated_data["ticker"]
+        amount = serializer.validated_data["amount"]
+        BALANCES[user_id][ticker] += amount
         ok = {"success": True}
         return Response(ok, status=200)
 
@@ -374,5 +380,12 @@ class AdminBalanceWithdrawView(APIView):
         serializer = WithdrawSerializer(data=request.data)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
+        user_id = serializer.validated_data["user_id"]
+        ticker = serializer.validated_data["ticker"]
+        amount = serializer.validated_data["amount"]
+        balance = BALANCES[user_id][ticker]
+        if balance < amount:
+            return http_validation_error("Insufficient balance", ["body", "amount"])
+        BALANCES[user_id][ticker] -= amount
         ok = {"success": True}
         return Response(ok, status=200)
