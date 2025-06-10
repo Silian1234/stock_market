@@ -4,10 +4,10 @@ from .models import User
 
 class APIKeyAuthentication(BaseAuthentication):
     def authenticate(self, request):
-        auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith('TOKEN '):
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.lower().startswith("token "):
             return None
-        api_key = auth_header.split(' ')[1]
+        api_key = auth_header.split(" ", 1)[1]
         try:
             user = User.objects.get(api_key=api_key)
         except User.DoesNotExist:
