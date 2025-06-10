@@ -322,17 +322,20 @@ class AdminInstrumentCreateView(APIView):
 
 
     @swagger_auto_schema(request_body=InstrumentSerializer, responses={200: OkSerializer})
-    def post(self, request):
-        print(
-            f"\n>>> REQUEST LOG: {request.method} {request.get_full_path()}\n"
-            f"Headers: {dict(request.headers)}\n")
-        user_id = InstrumentSerializer.validated_data["user_id"]
-        ticker = InstrumentSerializer.validated_data["ticker"]
-        amount = InstrumentSerializer.validated_data["amount"]
+    def post(self, request, INSTRUMENTS=None):
+        serializer = InstrumentSerializer(data=request.data)
+        if not serializer.is_valid():
+            return http_validation_error(serializer.errors)
+        ticker = serializer.validated_data["ticker"]
+        if ticker in INSTRUMENTS:
+            return http_validation_error("Ticker already exists", ["body", "ticker"])
+        user_id = serializer.validated_data["user_id"]
+        ticker = serializer.validated_data["ticker"]
+        amount = serializer.validated_data["amount"]
         BALANCES[user_id][ticker] += amount
-        user_id = InstrumentSerializer.validated_data["user_id"]
-        ticker = InstrumentSerializer.validated_data["ticker"]
-        amount = InstrumentSerializer.validated_data["amount"]
+        user_id = serializer.validated_data["user_id"]
+        ticker = serializer.validated_data["ticker"]
+        amount = serializer.validated_data["amount"]
         balance = BALANCES[user_id][ticker]
         if balance < amount:
             return http_validation_error("Insufficient balance", ["body", "amount"])
