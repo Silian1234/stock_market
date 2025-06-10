@@ -5,6 +5,7 @@ from .models import User
 class APIKeyAuthentication(BaseAuthentication):
     def authenticate(self, request):
         auth_header = request.headers.get("Authorization", "").strip()
+
         if not auth_header:
             return None
 
