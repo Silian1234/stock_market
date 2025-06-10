@@ -13,3 +13,6 @@ class APIKeyAuthentication(BaseAuthentication):
         except User.DoesNotExist:
             raise AuthenticationFailed('Invalid API Key')
         return (user, None)
+
+    def authenticate_header(self, request):
+        return 'Token'
