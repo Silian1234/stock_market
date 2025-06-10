@@ -20,6 +20,7 @@ from collections import defaultdict
 ORDERS = {}
 ORDER_BOOK = defaultdict(lambda: {"BUY": [], "SELL": []})
 TRADES = []
+BALANCES = defaultdict(lambda: defaultdict(float))
 
 
 def _remaining(order):
@@ -213,7 +214,8 @@ class L2OrderBookView(APIView):
         except Exception:
             return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
         book = ORDER_BOOK[ticker]
-        bids = sorted(book["BUY"], key=lambda o: o["body"]["price"], reverse=True)[:limit]
+        user_id = str(request.user.id)
+        data = dict(BALANCES[user_id])
         asks = sorted(book["SELL"], key=lambda o: o["body"]["price"])[:limit]
         orderbook = {
             "bid_levels": [{"price": o["body"]["price"], "qty": _remaining(o)} for o in bids],
@@ -322,6 +324,17 @@ class AdminInstrumentCreateView(APIView):
         print(
             f"\n>>> REQUEST LOG: {request.method} {request.get_full_path()}\n"
             f"Headers: {dict(request.headers)}\n"
+        user_id = serializer.validated_data["user_id"]
+        ticker = serializer.validated_data["ticker"]
+        amount = serializer.validated_data["amount"]
+        BALANCES[user_id][ticker] += amount
+        user_id = serializer.validated_data["user_id"]
+        ticker = serializer.validated_data["ticker"]
+        amount = serializer.validated_data["amount"]
+        balance = BALANCES[user_id][ticker]
+        if balance < amount:
+            return http_validation_error("Insufficient balance", ["body", "amount"])
+        BALANCES[user_id][ticker] -= amount
             f"Content-Type: {request.content_type}\n"
             f"Body: {request.body.decode(errors='replace')}\n",
             file=sys.stderr
