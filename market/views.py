@@ -14,7 +14,7 @@ from .serializers import (
     DepositSerializer, WithdrawSerializer
 )
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 def http_validation_error(msg, loc=None):
     if loc is None:
@@ -123,7 +123,7 @@ class OrderDetailView(APIView):
             "id": str(order_id),
             "status": "NEW",
             "user_id": str(uuid.uuid4()),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "body": {
                 "direction": "BUY",
                 "ticker": "MEMCOIN",
