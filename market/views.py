@@ -3,7 +3,7 @@ import sys
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
+from rest_framework import status, permissions, request
 from rest_framework.parsers import *
 from drf_yasg.utils import swagger_auto_schema
 from .serializers import (
@@ -325,18 +325,18 @@ class AdminInstrumentCreateView(APIView):
     def post(self, request):
         print(
             f"\n>>> REQUEST LOG: {request.method} {request.get_full_path()}\n"
-            f"Headers: {dict(request.headers)}\n"
-        user_id = serializer.validated_data["user_id"]
-        ticker = serializer.validated_data["ticker"]
-        amount = serializer.validated_data["amount"]
+            f"Headers: {dict(request.headers)}\n")
+        user_id = InstrumentSerializer.validated_data["user_id"]
+        ticker = InstrumentSerializer.validated_data["ticker"]
+        amount = InstrumentSerializer.validated_data["amount"]
         BALANCES[user_id][ticker] += amount
-        user_id = serializer.validated_data["user_id"]
-        ticker = serializer.validated_data["ticker"]
-        amount = serializer.validated_data["amount"]
+        user_id = InstrumentSerializer.validated_data["user_id"]
+        ticker = InstrumentSerializer.validated_data["ticker"]
+        amount = InstrumentSerializer.validated_data["amount"]
         balance = BALANCES[user_id][ticker]
         if balance < amount:
             return http_validation_error("Insufficient balance", ["body", "amount"])
-        BALANCES[user_id][ticker] -= amount
+        BALANCES[user_id][ticker] -= amount(
             f"Content-Type: {request.content_type}\n"
             f"Body: {request.body.decode(errors='replace')}\n",
             file=sys.stderr
