@@ -3,7 +3,7 @@ import sys
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, permissions, request
+from rest_framework import status, permissions
 from rest_framework.parsers import *
 from drf_yasg.utils import swagger_auto_schema
 from .serializers import (
@@ -14,16 +14,23 @@ from .serializers import (
     DepositSerializer, WithdrawSerializer
 )
 import uuid
+from datetime import datetime
 from datetime import datetime, timezone
 from collections import defaultdict
+
 
 def utcnow():
     """Return current UTC time as an ISO string with timezone."""
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
 ORDERS = {}
 ORDER_BOOK = defaultdict(lambda: {"BUY": [], "SELL": []})
 TRADES = []
 BALANCES = defaultdict(lambda: defaultdict(float))
+INSTRUMENTS = {
+    "MEMCOIN": {"name": "Memecoin", "ticker": "MEMCOIN"},
+    "DODGE": {"name": "Dodge", "ticker": "DODGE"},
+}
 
 
 def _remaining(order):
@@ -204,6 +211,7 @@ class InstrumentListView(APIView):
             {"name": "Dodge", "ticker": "DODGE"}
         ]
         serializer = InstrumentSerializer(instruments, many=True)
+        serializer = InstrumentSerializer(INSTRUMENTS.values(), many=True)
         return Response(serializer.data, status=200)
 
 class L2OrderBookView(APIView):
@@ -219,6 +227,8 @@ class L2OrderBookView(APIView):
         bids = sorted(book["BUY"], key=lambda o: o["body"]["price"], reverse=True)[:limit]
         asks = sorted(book["SELL"], key=lambda o: o["body"]["price"])[:limit]
         orderbook = {
+            "bid_levels": [],
+            "ask_levels": [],
             "bid_levels": [{"price": o["body"]["price"], "qty": _remaining(o)} for o in bids],
             "ask_levels": [{"price": o["body"]["price"], "qty": _remaining(o)} for o in asks]
         }
@@ -235,6 +245,7 @@ class TransactionHistoryView(APIView):
                 raise ValueError()
         except Exception:
             return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
+        serializer = TransactionSerializer([], many=True)
         txs = [t for t in TRADES if t["ticker"] == ticker][:limit]
         serializer = TransactionSerializer(txs, many=True)
         return Response(serializer.data, status=200)
@@ -242,6 +253,7 @@ class TransactionHistoryView(APIView):
 class BalanceView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     def get(self, request):
+        data = {"MEMCOIN": 0, "DODGE": 100500}
         user_id = str(request.user.id)
         data = dict(BALANCES[user_id])
         return Response(data, status=200)
@@ -253,6 +265,8 @@ class OrderListCreateView(APIView):
 
 
     def get(self, request):
+        orders = []
+        return Response(orders, status=200)
         user_id = str(request.user.id)
         orders = [o for o in ORDERS.values() if o["user_id"] == user_id]
         serializer = LimitOrderSerializer(orders, many=True)
@@ -267,6 +281,9 @@ class OrderListCreateView(APIView):
             serializer = MarketOrderBodySerializer(data=body)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
+        response = {
+            "success": True,
+            "order_id": str(uuid.uuid4())}
         order_id = str(uuid.uuid4())
         order = {
             "id": order_id,
@@ -284,6 +301,19 @@ class OrderListCreateView(APIView):
 class OrderDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     def get(self, request, order_id):
+        order = {
+            "id": str(order_id),
+            "status": "NEW",
+            "user_id": str(uuid.uuid4()),
+            "timestamp": datetime.utcnow().isoformat(),
+            "body": {
+                "direction": "BUY",
+                "ticker": "MEMCOIN",
+                "qty": 1,
+                "price": 100
+            },
+            "filled": 0
+        }
         order = ORDERS.get(str(order_id))
         if not order:
             return Response(status=404)
@@ -323,20 +353,9 @@ class AdminInstrumentCreateView(APIView):
 
     @swagger_auto_schema(request_body=InstrumentSerializer, responses={200: OkSerializer})
     def post(self, request):
-        serializer = InstrumentSerializer(data=request.data)
-        if not serializer.is_valid():
-            return http_validation_error(serializer.errors)
-        user_id = serializer.validated_data["user_id"]
-        ticker = serializer.validated_data["ticker"]
-        amount = serializer.validated_data["amount"]
-        BALANCES[user_id][ticker] += amount
-        user_id = serializer.validated_data["user_id"]
-        ticker = serializer.validated_data["ticker"]
-        amount = serializer.validated_data["amount"]
-        balance = BALANCES[user_id][ticker]
-        if balance < amount:
-            return http_validation_error("Insufficient balance", ["body", "amount"])
-        BALANCES[user_id][ticker] -= amount(
+        print(
+            f"\n>>> REQUEST LOG: {request.method} {request.get_full_path()}\n"
+            f"Headers: {dict(request.headers)}\n"
             f"Content-Type: {request.content_type}\n"
             f"Body: {request.body.decode(errors='replace')}\n",
             file=sys.stderr
@@ -344,6 +363,13 @@ class AdminInstrumentCreateView(APIView):
         serializer = InstrumentSerializer(data=request.data)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
+        data = serializer.validated_data
+        ticker = data["ticker"]
+        if ticker in INSTRUMENTS:
+            return http_validation_error("Instrument already exists", ["body", "ticker"])
+        INSTRUMENTS[ticker] = {"name": data["name"], "ticker": ticker}
+        # ensure order book exists
+        ORDER_BOOK[ticker]
         ok = {"success": True}
         return Response(ok, status=200)
 
@@ -352,6 +378,13 @@ class AdminInstrumentDeleteView(APIView):
     def delete(self, request, ticker):
         ok = {"success": True}
         return Response(ok, status=200)
+        if ticker in INSTRUMENTS:
+            del INSTRUMENTS[ticker]
+            # drop order book if exists
+            ORDER_BOOK.pop(ticker, None)
+            ok = {"success": True}
+            return Response(ok, status=200)
+        return Response(status=404)
 
 class AdminBalanceDepositView(APIView):
     permission_classes = [permissions.IsAdminUser]
