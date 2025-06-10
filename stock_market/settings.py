@@ -4,13 +4,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY', 'your_secret_key_here')
 DEBUG = True
-ALLOWED_HOSTS = [
-    "pseudo-stock.org",
-    "www.pseudo-stock.org",
-    "79.137.192.201",
-    "localhost",
-    "127.0.0.1",
-]
+ALLOWED_HOSTS = ["*"]
 
 
 INSTALLED_APPS = [
