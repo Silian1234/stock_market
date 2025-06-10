@@ -15,9 +15,11 @@ class User(AbstractUser):
         if not self.api_key:
             import secrets
             self.api_key = secrets.token_hex(20)
-        # Keep is_staff in sync with the chosen role so admin users are
-        # recognized by `IsAdminUser` permission checks.
-        self.is_staff = self.role == self.Roles.ADMIN
+        # Automatically mark admin users and superusers as staff so they can
+        # access the Django admin.  Don't forcibly clear the flag for other
+        # roles to avoid overriding explicit settings.
+        if self.role == self.Roles.ADMIN or self.is_superuser:
+            self.is_staff = True
         super().save(*args, **kwargs)
 
 
