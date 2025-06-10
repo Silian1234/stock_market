@@ -216,6 +216,7 @@ class InstrumentListView(APIView):
 
 class L2OrderBookView(APIView):
     def get(self, request, ticker):
+        ticker = ticker.upper()
         limit = request.GET.get("limit", 10)
         try:
             limit = int(limit)
@@ -238,6 +239,7 @@ class L2OrderBookView(APIView):
 class TransactionHistoryView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     def get(self, request, ticker):
+        ticker = ticker.upper()
         limit = request.GET.get("limit", 10)
         try:
             limit = int(limit)
@@ -285,12 +287,14 @@ class OrderListCreateView(APIView):
             "success": True,
             "order_id": str(uuid.uuid4())}
         order_id = str(uuid.uuid4())
+        body_data = dict(serializer.validated_data)
+        body_data["ticker"] = body_data["ticker"].upper()
         order = {
             "id": order_id,
             "status": "NEW",
             "user_id": str(request.user.id),
             "timestamp": utcnow(),
-            "body": dict(serializer.validated_data),
+            "body": body_data,
             "filled": 0.0,
         }
         ORDERS[order_id] = order
@@ -364,7 +368,7 @@ class AdminInstrumentCreateView(APIView):
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
         data = serializer.validated_data
-        ticker = data["ticker"]
+        ticker = data["ticker"].upper()
         if ticker in INSTRUMENTS:
             return http_validation_error("Instrument already exists", ["body", "ticker"])
         INSTRUMENTS[ticker] = {"name": data["name"], "ticker": ticker}
@@ -376,8 +380,7 @@ class AdminInstrumentCreateView(APIView):
 class AdminInstrumentDeleteView(APIView):
     permission_classes = [permissions.IsAdminUser]
     def delete(self, request, ticker):
-        ok = {"success": True}
-        return Response(ok, status=200)
+        ticker = ticker.upper()
         if ticker in INSTRUMENTS:
             del INSTRUMENTS[ticker]
             # drop order book if exists
@@ -397,7 +400,7 @@ class AdminBalanceDepositView(APIView):
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
         user_id = serializer.validated_data["user_id"]
-        ticker = serializer.validated_data["ticker"]
+        ticker = serializer.validated_data["ticker"].upper()
         amount = serializer.validated_data["amount"]
         BALANCES[user_id][ticker] += amount
         ok = {"success": True}
@@ -414,7 +417,7 @@ class AdminBalanceWithdrawView(APIView):
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
         user_id = serializer.validated_data["user_id"]
-        ticker = serializer.validated_data["ticker"]
+        ticker = serializer.validated_data["ticker"].upper()
         amount = serializer.validated_data["amount"]
         balance = BALANCES[user_id][ticker]
         if balance < amount:
