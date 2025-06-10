@@ -322,13 +322,10 @@ class AdminInstrumentCreateView(APIView):
 
 
     @swagger_auto_schema(request_body=InstrumentSerializer, responses={200: OkSerializer})
-    def post(self, request, INSTRUMENTS=None):
+    def post(self, request):
         serializer = InstrumentSerializer(data=request.data)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
-        ticker = serializer.validated_data["ticker"]
-        if ticker in INSTRUMENTS:
-            return http_validation_error("Ticker already exists", ["body", "ticker"])
         user_id = serializer.validated_data["user_id"]
         ticker = serializer.validated_data["ticker"]
         amount = serializer.validated_data["amount"]
