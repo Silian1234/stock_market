@@ -14,7 +14,154 @@ from .serializers import (
     DepositSerializer, WithdrawSerializer
 )
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+from collections import defaultdict
+
+ORDERS = {}
+ORDER_BOOK = defaultdict(lambda: {"BUY": [], "SELL": []})
+TRADES = []
+
+
+def _remaining(order):
+    return order["body"]["qty"] - order["filled"]
+
+
+def _match_market(order):
+    ticker = order["body"]["ticker"]
+    direction = order["body"]["direction"]
+    qty = _remaining(order)
+    book = ORDER_BOOK[ticker]
+    if direction == "BUY":
+        orders = book["SELL"]
+        orders.sort(key=lambda o: o["body"]["price"])
+    else:
+        orders = book["BUY"]
+        orders.sort(key=lambda o: o["body"]["price"], reverse=True)
+    i = 0
+    while qty > 0 and i < len(orders):
+        counter = orders[i]
+        available = _remaining(counter)
+        trade_qty = min(qty, available)
+        if trade_qty <= 0:
+            i += 1
+            continue
+        qty -= trade_qty
+        order["filled"] += trade_qty
+        counter["filled"] += trade_qty
+        TRADES.append({
+            "id": str(uuid.uuid4()),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "ticker": ticker,
+            "qty": trade_qty,
+            "price": counter["body"].get("price", 0),
+            "direction": direction,
+            "order_id": order["id"],
+            "user_id": order["user_id"],
+        })
+        if _remaining(counter) == 0:
+            counter["status"] = "EXECUTED"
+            orders.pop(i)
+        else:
+            counter["status"] = "PARTIALLY_EXECUTED"
+            i += 1
+    if _remaining(order) == 0:
+        order["status"] = "EXECUTED"
+    elif order["filled"] > 0:
+        order["status"] = "PARTIALLY_EXECUTED"
+
+
+def _match_limit(order):
+    ticker = order["body"]["ticker"]
+    direction = order["body"]["direction"]
+    price = order["body"]["price"]
+    qty = _remaining(order)
+    book = ORDER_BOOK[ticker]
+    if direction == "BUY":
+        orders = book["SELL"]
+        orders.sort(key=lambda o: o["body"]["price"])
+        i = 0
+        while qty > 0 and i < len(orders):
+            counter = orders[i]
+            if counter["body"]["price"] > price:
+                break
+            available = _remaining(counter)
+            trade_qty = min(qty, available)
+            if trade_qty <= 0:
+                i += 1
+                continue
+            qty -= trade_qty
+            order["filled"] += trade_qty
+            counter["filled"] += trade_qty
+            TRADES.append({
+                "id": str(uuid.uuid4()),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "ticker": ticker,
+                "qty": trade_qty,
+                "price": counter["body"].get("price", 0),
+                "direction": direction,
+                "order_id": order["id"],
+                "user_id": order["user_id"],
+            })
+            if _remaining(counter) == 0:
+                counter["status"] = "EXECUTED"
+                orders.pop(i)
+            else:
+                counter["status"] = "PARTIALLY_EXECUTED"
+                i += 1
+        if _remaining(order) > 0:
+            if order["filled"] > 0:
+                order["status"] = "PARTIALLY_EXECUTED"
+            book["BUY"].append(order)
+            book["BUY"].sort(key=lambda o: o["body"]["price"], reverse=True)
+        else:
+            order["status"] = "EXECUTED"
+    else:
+        orders = book["BUY"]
+        orders.sort(key=lambda o: o["body"]["price"], reverse=True)
+        i = 0
+        while qty > 0 and i < len(orders):
+            counter = orders[i]
+            if counter["body"]["price"] < price:
+                break
+            available = _remaining(counter)
+            trade_qty = min(qty, available)
+            if trade_qty <= 0:
+                i += 1
+                continue
+            qty -= trade_qty
+            order["filled"] += trade_qty
+            counter["filled"] += trade_qty
+            TRADES.append({
+                "id": str(uuid.uuid4()),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "ticker": ticker,
+                "qty": trade_qty,
+                "price": counter["body"].get("price", 0),
+                "direction": direction,
+                "order_id": order["id"],
+                "user_id": order["user_id"],
+            })
+            if _remaining(counter) == 0:
+                counter["status"] = "EXECUTED"
+                orders.pop(i)
+            else:
+                counter["status"] = "PARTIALLY_EXECUTED"
+                i += 1
+        if _remaining(order) > 0:
+            if order["filled"] > 0:
+                order["status"] = "PARTIALLY_EXECUTED"
+            book["SELL"].append(order)
+            book["SELL"].sort(key=lambda o: o["body"]["price"])
+        else:
+            order["status"] = "EXECUTED"
+
+
+def process_order(order):
+    if "price" in order["body"]:
+        _match_limit(order)
+    else:
+        _match_market(order)
+
 
 def http_validation_error(msg, loc=None):
     if loc is None:
@@ -64,9 +211,12 @@ class L2OrderBookView(APIView):
                 raise ValueError()
         except Exception:
             return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
+        book = ORDER_BOOK[ticker]
+        bids = sorted(book["BUY"], key=lambda o: o["body"]["price"], reverse=True)[:limit]
+        asks = sorted(book["SELL"], key=lambda o: o["body"]["price"])[:limit]
         orderbook = {
-            "bid_levels": [],
-            "ask_levels": []
+            "bid_levels": [{"price": o["body"]["price"], "qty": _remaining(o)} for o in bids],
+            "ask_levels": [{"price": o["body"]["price"], "qty": _remaining(o)} for o in asks]
         }
         serializer = L2OrderBookSerializer(orderbook)
         return Response(serializer.data, status=200)
@@ -81,7 +231,8 @@ class TransactionHistoryView(APIView):
                 raise ValueError()
         except Exception:
             return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
-        serializer = TransactionSerializer([], many=True)
+        txs = [t for t in TRADES if t["ticker"] == ticker][:limit]
+        serializer = TransactionSerializer(txs, many=True)
         return Response(serializer.data, status=200)
 
 class BalanceView(APIView):
@@ -97,45 +248,53 @@ class OrderListCreateView(APIView):
 
 
     def get(self, request):
-        orders = []
-        return Response(orders, status=200)
+        user_id = str(request.user.id)
+        orders = [o for o in ORDERS.values() if o["user_id"] == user_id]
+        serializer = LimitOrderSerializer(orders, many=True)
+        return Response(serializer.data, status=200)
 
     @swagger_auto_schema(request_body=LimitOrderBodySerializer, responses={200: CreateOrderResponseSerializer})
     def post(self, request):
         body = request.data
-        # Здесь подбирай сериализатор в зависимости от наличия поля "price"
         if "price" in body:
             serializer = LimitOrderBodySerializer(data=body)
         else:
             serializer = MarketOrderBodySerializer(data=body)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
-        response = {
-            "success": True,
-            "order_id": str(uuid.uuid4())
+        order_id = str(uuid.uuid4())
+        order = {
+            "id": order_id,
+            "status": "NEW",
+            "user_id": str(request.user.id),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "body": dict(serializer.validated_data),
+            "filled": 0.0,
         }
+        ORDERS[order_id] = order
+        process_order(order)
+        response = {"success": True, "order_id": order_id}
         return Response(response, status=200)
 
 class OrderDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     def get(self, request, order_id):
-        order = {
-            "id": str(order_id),
-            "status": "NEW",
-            "user_id": str(uuid.uuid4()),
-            "timestamp": datetime.utcnow().isoformat(),
-            "body": {
-                "direction": "BUY",
-                "ticker": "MEMCOIN",
-                "qty": 1,
-                "price": 100
-            },
-            "filled": 0
-        }
+        order = ORDERS.get(str(order_id))
+        if not order:
+            return Response(status=404)
         serializer = LimitOrderSerializer(order)
         return Response(serializer.data, status=200)
 
     def delete(self, request, order_id):
+        order = ORDERS.get(str(order_id))
+        if not order:
+            return Response(status=404)
+        order["status"] = "CANCELLED"
+        ticker = order["body"]["ticker"]
+        direction = order["body"]["direction"]
+        book = ORDER_BOOK[ticker][direction]
+        if order in book:
+            book.remove(order)
         ok = {"success": True}
         return Response(ok, status=200)
 
