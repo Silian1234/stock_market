@@ -150,6 +150,7 @@ def _match_limit(order):
         if _remaining(order) > 0:
             if order["filled"] > 0:
                 order["status"] = "PARTIALLY_EXECUTED"
+
             book["SELL"].append(order)
             book["SELL"].sort(key=lambda o: o["body"]["price"])
         else:
