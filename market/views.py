@@ -392,8 +392,7 @@ class AdminInstrumentDeleteView(APIView):
         return Response(status=404)
 
 class AdminBalanceDepositView(APIView):
-    # Allow public access to simplify testing
-    permission_classes = []
+    permission_classes = [permissions.IsAdminUser]
     parser_classes = [JSONParser, FormParser, MultiPartParser]
 
 
@@ -410,7 +409,7 @@ class AdminBalanceDepositView(APIView):
         return Response(ok, status=200)
 
 class AdminBalanceWithdrawView(APIView):
-    permission_classes = []
+    permission_classes = [permissions.IsAdminUser]
     parser_classes = [JSONParser, FormParser, MultiPartParser]
 
 
