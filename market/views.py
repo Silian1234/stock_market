@@ -1,4 +1,4 @@
-import sys
+
 
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
@@ -26,10 +26,11 @@ def utcnow():
 ORDERS = {}
 ORDER_BOOK = defaultdict(lambda: {"BUY": [], "SELL": []})
 TRADES = []
-BALANCES = defaultdict(lambda: defaultdict(float))
+BALANCES = defaultdict(lambda: defaultdict(int))
 INSTRUMENTS = {
     "MEMCOIN": {"name": "Memecoin", "ticker": "MEMCOIN"},
     "DODGE": {"name": "Dodge", "ticker": "DODGE"},
+    "RUB": {"name": "Ruble", "ticker": "RUB"},
 }
 
 
@@ -193,9 +194,7 @@ class RegisterView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=422)
         username = serializer.validated_data['name']
-        role = serializer.validated_data.get('role', User.Roles.USER)
-        is_staff = role == User.Roles.ADMIN
-        user = User.objects.create_user(username=username, role=role, is_staff=is_staff)
+        user = User.objects.create_user(username=username, role=User.Roles.USER)
         data = {
             "id": str(user.id),
             "name": user.username,
@@ -206,11 +205,6 @@ class RegisterView(APIView):
 
 class InstrumentListView(APIView):
     def get(self, request):
-        instruments = [
-            {"name": "Memecoin", "ticker": "MEMCOIN"},
-            {"name": "Dodge", "ticker": "DODGE"}
-        ]
-        serializer = InstrumentSerializer(instruments, many=True)
         serializer = InstrumentSerializer(INSTRUMENTS.values(), many=True)
         return Response(serializer.data, status=200)
 
@@ -228,16 +222,13 @@ class L2OrderBookView(APIView):
         bids = sorted(book["BUY"], key=lambda o: o["body"]["price"], reverse=True)[:limit]
         asks = sorted(book["SELL"], key=lambda o: o["body"]["price"])[:limit]
         orderbook = {
-            "bid_levels": [],
-            "ask_levels": [],
             "bid_levels": [{"price": o["body"]["price"], "qty": _remaining(o)} for o in bids],
-            "ask_levels": [{"price": o["body"]["price"], "qty": _remaining(o)} for o in asks]
+            "ask_levels": [{"price": o["body"]["price"], "qty": _remaining(o)} for o in asks],
         }
         serializer = L2OrderBookSerializer(orderbook)
         return Response(serializer.data, status=200)
 
 class TransactionHistoryView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
     def get(self, request, ticker):
         ticker = ticker.upper()
         limit = request.GET.get("limit", 10)
@@ -247,7 +238,6 @@ class TransactionHistoryView(APIView):
                 raise ValueError()
         except Exception:
             return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
-        serializer = TransactionSerializer([], many=True)
         txs = [t for t in TRADES if t["ticker"] == ticker][:limit]
         serializer = TransactionSerializer(txs, many=True)
         return Response(serializer.data, status=200)
@@ -255,10 +245,11 @@ class TransactionHistoryView(APIView):
 class BalanceView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     def get(self, request):
-        data = {"MEMCOIN": 0, "DODGE": 100500}
         user_id = str(request.user.id)
-        data = dict(BALANCES[user_id])
-        return Response(data, status=200)
+        balances = dict(BALANCES[user_id])
+        for ticker in INSTRUMENTS:
+            balances.setdefault(ticker, 0)
+        return Response(balances, status=200)
 
 class OrderListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -267,12 +258,15 @@ class OrderListCreateView(APIView):
 
 
     def get(self, request):
-        orders = []
-        return Response(orders, status=200)
         user_id = str(request.user.id)
-        orders = [o for o in ORDERS.values() if o["user_id"] == user_id]
-        serializer = LimitOrderSerializer(orders, many=True)
-        return Response(serializer.data, status=200)
+        user_orders = [o for o in ORDERS.values() if o["user_id"] == user_id]
+        serialized = []
+        for order in user_orders:
+            if "price" in order["body"]:
+                serialized.append(LimitOrderSerializer(order).data)
+            else:
+                serialized.append(MarketOrderSerializer(order).data)
+        return Response(serialized, status=200)
 
     @swagger_auto_schema(request_body=LimitOrderBodySerializer, responses={200: CreateOrderResponseSerializer})
     def post(self, request):
@@ -283,9 +277,6 @@ class OrderListCreateView(APIView):
             serializer = MarketOrderBodySerializer(data=body)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
-        response = {
-            "success": True,
-            "order_id": str(uuid.uuid4())}
         order_id = str(uuid.uuid4())
         body_data = dict(serializer.validated_data)
         body_data["ticker"] = body_data["ticker"].upper()
@@ -295,7 +286,7 @@ class OrderListCreateView(APIView):
             "user_id": str(request.user.id),
             "timestamp": utcnow(),
             "body": body_data,
-            "filled": 0.0,
+            "filled": 0,
         }
         ORDERS[order_id] = order
         process_order(order)
@@ -305,23 +296,13 @@ class OrderListCreateView(APIView):
 class OrderDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     def get(self, request, order_id):
-        order = {
-            "id": str(order_id),
-            "status": "NEW",
-            "user_id": str(uuid.uuid4()),
-            "timestamp": datetime.utcnow().isoformat(),
-            "body": {
-                "direction": "BUY",
-                "ticker": "MEMCOIN",
-                "qty": 1,
-                "price": 100
-            },
-            "filled": 0
-        }
         order = ORDERS.get(str(order_id))
         if not order:
             return Response(status=404)
-        serializer = LimitOrderSerializer(order)
+        if "price" in order["body"]:
+            serializer = LimitOrderSerializer(order)
+        else:
+            serializer = MarketOrderSerializer(order)
         return Response(serializer.data, status=200)
 
     def delete(self, request, order_id):
@@ -340,13 +321,18 @@ class OrderDetailView(APIView):
 class AdminUserDeleteView(APIView):
     permission_classes = [permissions.IsAdminUser]
     def delete(self, request, user_id):
-        user = {
-            "id": str(user_id),
-            "name": "test",
-            "role": "USER",
-            "api_key": "key-" + str(uuid.uuid4())
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response(status=404)
+        data = {
+            "id": str(user.id),
+            "name": user.username,
+            "role": user.role,
+            "api_key": user.api_key,
         }
-        serializer = UserSerializer(user)
+        user.delete()
+        serializer = UserSerializer(data)
         return Response(serializer.data, status=200)
 
 class AdminInstrumentCreateView(APIView):
@@ -357,13 +343,6 @@ class AdminInstrumentCreateView(APIView):
 
     @swagger_auto_schema(request_body=InstrumentSerializer, responses={200: OkSerializer})
     def post(self, request):
-        print(
-            f"\n>>> REQUEST LOG: {request.method} {request.get_full_path()}\n"
-            f"Headers: {dict(request.headers)}\n"
-            f"Content-Type: {request.content_type}\n"
-            f"Body: {request.body.decode(errors='replace')}\n",
-            file=sys.stderr
-        )
         serializer = InstrumentSerializer(data=request.data)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
@@ -425,3 +404,4 @@ class AdminBalanceWithdrawView(APIView):
         BALANCES[user_id][ticker] -= amount
         ok = {"success": True}
         return Response(ok, status=200)
+
