@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 from .models import User
 
@@ -69,10 +71,12 @@ class OkSerializer(serializers.Serializer):
 
 class DepositSerializer(serializers.Serializer):
     user_id = serializers.CharField()
-    ticker = serializers.CharField()
-    amount = serializers.FloatField()
+    ticker  = serializers.CharField()
+    amount  = serializers.DecimalField(max_digits=20, decimal_places=2,
+                                       min_value=Decimal("0.01"))
 
 class WithdrawSerializer(serializers.Serializer):
     user_id = serializers.CharField()
-    ticker = serializers.CharField()
-    amount = serializers.FloatField()
+    ticker  = serializers.CharField()
+    amount  = serializers.DecimalField(max_digits=20, decimal_places=2,
+                                       min_value=Decimal("0.01"))

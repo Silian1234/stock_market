@@ -415,9 +415,19 @@ class AdminBalanceDepositView(APIView):
         serializer = DepositSerializer(data=request.data)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
+
         user_id = serializer.validated_data["user_id"]
-        ticker = serializer.validated_data["ticker"].upper()
-        amount = Decimal(serializer.validated_data["amount"])
+        ticker  = serializer.validated_data["ticker"].upper()
+        amount  = Decimal(serializer.validated_data["amount"])
+
+        if ticker not in INSTRUMENTS:
+            return http_validation_error("Unknown ticker", ["body", "ticker"])
+
+        try:
+            User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return http_validation_error("User not found", ["body", "user_id"])
+
         BALANCES[user_id][ticker] += amount
         return Response({"success": True}, status=200)
 
@@ -431,10 +441,17 @@ class AdminBalanceWithdrawView(APIView):
         serializer = WithdrawSerializer(data=request.data)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
+
         user_id = serializer.validated_data["user_id"]
-        ticker = serializer.validated_data["ticker"].upper()
-        amount = Decimal(serializer.validated_data["amount"])
-        if BALANCES[user_id][ticker] < amount:
+        ticker  = serializer.validated_data["ticker"].upper()
+        amount  = Decimal(serializer.validated_data["amount"])
+
+        if ticker not in INSTRUMENTS:
+            return http_validation_error("Unknown ticker", ["body", "ticker"])
+
+        balance = BALANCES[user_id][ticker]
+        if balance < amount:
             return http_validation_error("Insufficient balance", ["body", "amount"])
+
         BALANCES[user_id][ticker] -= amount
-        return Response({"success": True}, status=status.HTTP_200_OK)
+        return Response({"success": True}, status=200)
