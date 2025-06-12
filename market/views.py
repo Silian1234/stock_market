@@ -275,9 +275,7 @@ class BalanceView(APIView):
 
     def get(self, request):
         user_id  = str(request.user.id)
-        balances = {
-            t: float(a) for t, a in BALANCES[user_id].items() if a
-        }
+        balances = {t: float(a) for t, a in BALANCES[user_id].items() if a}
         return Response(balances, status=200)
 
 
@@ -385,9 +383,8 @@ class AdminInstrumentCreateView(APIView):
         serializer = InstrumentSerializer(data=request.data)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
-
         data = serializer.validated_data
-        ticker = data["ticker"].upper()
+        ticker = data["ticker"]
 
         if ticker in INSTRUMENTS:
             return http_validation_error("Instrument already exists", ["body", "ticker"])
@@ -422,20 +419,20 @@ class AdminBalanceDepositView(APIView):
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
 
-        amount = Decimal(serializer.validated_data["amount"])
-        if amount <= 0:
-            return http_validation_error("Amount must be positive", ["body", "amount"])
-
         user_id = serializer.validated_data["user_id"]
-        ticker = serializer.validated_data["ticker"].upper()
+        ticker = serializer.validated_data["ticker"]
+        amount = Decimal(serializer.validated_data["amount"])
+
+        try:
+            uuid.UUID(user_id)
+        except ValueError:
+            return http_validation_error("Invalid user_id", ["body", "user_id"])
+
+        if not User.objects.filter(id=user_id).exists():
+            return http_validation_error("User not found", ["body", "user_id"])
 
         if ticker not in INSTRUMENTS:
             return http_validation_error("Unknown ticker", ["body", "ticker"])
-
-        try:
-            User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return http_validation_error("User not found", ["body", "user_id"])
 
         BALANCES[user_id][ticker] += amount
         return Response({"success": True}, status=200)

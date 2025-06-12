@@ -13,10 +13,6 @@ class UserSerializer(serializers.Serializer):
     role = serializers.CharField()
     api_key = serializers.CharField()
 
-class InstrumentSerializer(serializers.Serializer):
-    name = serializers.CharField(max_length=100)
-    ticker = serializers.CharField(max_length=20)
-
 class L2LevelSerializer(serializers.Serializer):
     price = serializers.FloatField()
     qty = serializers.FloatField()
@@ -69,14 +65,18 @@ class MarketOrderSerializer(serializers.Serializer):
 class OkSerializer(serializers.Serializer):
     success = serializers.BooleanField()
 
+class InstrumentSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=100, allow_blank=False)
+    ticker = serializers.RegexField(regex=r"^[A-Z]{1,20}$", max_length=20)
+
 class DepositSerializer(serializers.Serializer):
     user_id = serializers.CharField()
-    ticker  = serializers.CharField()
-    amount  = serializers.DecimalField(max_digits=20, decimal_places=2,
+    ticker = serializers.RegexField(regex=r"^[A-Z]{1,20}$", max_length=20)
+    amount = serializers.DecimalField(max_digits=20, decimal_places=2,
                                        min_value=Decimal("0.01"))
 
 class WithdrawSerializer(serializers.Serializer):
     user_id = serializers.CharField()
-    ticker  = serializers.CharField()
-    amount  = serializers.DecimalField(max_digits=20, decimal_places=2,
+    ticker = serializers.RegexField(regex=r"^[A-Z]{1,20}$", max_length=20)
+    amount = serializers.DecimalField(max_digits=20, decimal_places=2,
                                        min_value=Decimal("0.01"))
