@@ -342,7 +342,12 @@ class OrderDetailView(APIView):
         order = ORDERS.get(str(order_id))
         if not order:
             return Response(status=404)
-        serializer = LimitOrderSerializer(order)
+
+        if "price" in order["body"]:
+            serializer = LimitOrderSerializer(order)
+        else:
+            serializer = MarketOrderSerializer(order)
+
         return Response(serializer.data, status=200)
 
     def delete(self, request, order_id):
