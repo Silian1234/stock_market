@@ -206,10 +206,6 @@ class RegisterView(APIView):
 
         user = User.objects.create_user(username=username, role=role, is_staff=is_staff)
 
-        # стартовый бонус
-        BALANCES[str(user.id)]["RUB"] = Decimal("250")
-        Account.objects.get_or_create(user=user, defaults={"balance": 250})
-
         data = {
             "id": str(user.id),
             "name": user.username,
