@@ -36,6 +36,11 @@ from .serializers import (
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
+def _cleanup_book(ticker: str):
+    for side in ("BUY", "SELL"):
+        ORDER_BOOK[ticker][side] = [
+            o for o in ORDER_BOOK[ticker][side] if _remaining(o) > 0
+        ]
 
 def _remaining(order: dict) -> Decimal:
     return Decimal(order["body"]["qty"]) - Decimal(order["filled"])
@@ -135,6 +140,7 @@ def execute_matches(order, counter_orders):
     elif order["filled"] > 0:
         order["status"] = "PARTIALLY_EXECUTED"
 
+    _cleanup_book(ticker)
 
 def match_market_order(order):
     direction = order["order_type"]
@@ -232,10 +238,8 @@ class L2OrderBookView(APIView):
             return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
 
         book = ORDER_BOOK[ticker]
-        bids = sorted(
-            book["BUY"], key=lambda o: o["body"]["price"], reverse=True
-        )[:limit]
-        asks = sorted(book["SELL"], key=lambda o: o["body"]["price"])[:limit]
+        bids = [o for o in sorted(book["BUY"], key=lambda x: x["body"]["price"], reverse=True) if _remaining(o) > 0][:limit]
+        asks = [o for o in sorted(book["SELL"], key=lambda x: x["body"]["price"]) if _remaining(o) > 0][:limit]
 
         orderbook = {
             "bid_levels": [
@@ -271,9 +275,7 @@ class BalanceView(APIView):
 
     def get(self, request):
         user_id = str(request.user.id)
-        balances = {
-            ticker: float(amount) for ticker, amount in BALANCES[user_id].items()
-        }
+        balances = {t: float(a) for t, a in BALANCES[user_id].items() if a}
         for ticker in INSTRUMENTS:
             balances.setdefault(ticker, 0.0)
         return Response(balances, status=200)
