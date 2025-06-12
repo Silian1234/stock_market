@@ -1,10 +1,8 @@
-import sys
-
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
-from rest_framework.parsers import *
+from rest_framework import permissions
+from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
 from drf_yasg.utils import swagger_auto_schema
 
 from .models import Account
@@ -13,10 +11,10 @@ from .serializers import (
     L2OrderBookSerializer, LimitOrderSerializer, MarketOrderSerializer,
     LimitOrderBodySerializer, MarketOrderBodySerializer,
     CreateOrderResponseSerializer, OkSerializer, TransactionSerializer,
-    DepositSerializer, WithdrawSerializer
+    DepositSerializer,
+    WithdrawSerializer,
 )
 import uuid
-from datetime import datetime
 from datetime import datetime, timezone
 from collections import defaultdict
 
@@ -40,20 +38,24 @@ def _remaining(order):
     return order["body"]["qty"] - order["filled"]
 
 
-def _match_market(order):
+def _match_order(order):
     ticker = order["body"]["ticker"]
     direction = order["body"]["direction"]
+    price = order["body"].get("price")
     qty = _remaining(order)
     book = ORDER_BOOK[ticker]
-    if direction == "BUY":
-        orders = book["SELL"]
-        orders.sort(key=lambda o: o["body"]["price"])
-    else:
-        orders = book["BUY"]
-        orders.sort(key=lambda o: o["body"]["price"], reverse=True)
+    side = "SELL" if direction == "BUY" else "BUY"
+    orders = book[side]
+    orders.sort(key=lambda o: o["body"]["price"], reverse=direction == "BUY")
     i = 0
     while qty > 0 and i < len(orders):
         counter = orders[i]
+        cp = counter["body"]["price"]
+        if price is not None:
+            if direction == "BUY" and cp > price:
+                break
+            if direction == "SELL" and cp < price:
+                break
         available = _remaining(counter)
         trade_qty = min(qty, available)
         if trade_qty <= 0:
@@ -67,7 +69,7 @@ def _match_market(order):
             "timestamp": utcnow(),
             "ticker": ticker,
             "qty": trade_qty,
-            "price": counter["body"].get("price", 0),
+            "price": cp,
             "direction": direction,
             "order_id": order["id"],
             "user_id": order["user_id"],
@@ -84,97 +86,15 @@ def _match_market(order):
         order["status"] = "PARTIALLY_EXECUTED"
 
 
-def _match_limit(order):
-    ticker = order["body"]["ticker"]
-    direction = order["body"]["direction"]
-    price = order["body"]["price"]
-    qty = _remaining(order)
-    book = ORDER_BOOK[ticker]
-    if direction == "BUY":
-        orders = book["SELL"]
-        orders.sort(key=lambda o: o["body"]["price"])
-        i = 0
-        while qty > 0 and i < len(orders):
-            counter = orders[i]
-            if counter["body"]["price"] > price:
-                break
-            available = _remaining(counter)
-            trade_qty = min(qty, available)
-            if trade_qty <= 0:
-                i += 1
-                continue
-            qty -= trade_qty
-            order["filled"] += trade_qty
-            counter["filled"] += trade_qty
-            TRADES.append({
-                "id": str(uuid.uuid4()),
-                "timestamp": utcnow(),
-                "ticker": ticker,
-                "qty": trade_qty,
-                "price": counter["body"].get("price", 0),
-                "direction": direction,
-                "order_id": order["id"],
-                "user_id": order["user_id"],
-            })
-            if _remaining(counter) == 0:
-                counter["status"] = "EXECUTED"
-                orders.pop(i)
-            else:
-                counter["status"] = "PARTIALLY_EXECUTED"
-                i += 1
-        if _remaining(order) > 0:
-            if order["filled"] > 0:
-                order["status"] = "PARTIALLY_EXECUTED"
-            book["BUY"].append(order)
-            book["BUY"].sort(key=lambda o: o["body"]["price"], reverse=True)
-        else:
-            order["status"] = "EXECUTED"
-    else:
-        orders = book["BUY"]
-        orders.sort(key=lambda o: o["body"]["price"], reverse=True)
-        i = 0
-        while qty > 0 and i < len(orders):
-            counter = orders[i]
-            if counter["body"]["price"] < price:
-                break
-            available = _remaining(counter)
-            trade_qty = min(qty, available)
-            if trade_qty <= 0:
-                i += 1
-                continue
-            qty -= trade_qty
-            order["filled"] += trade_qty
-            counter["filled"] += trade_qty
-            TRADES.append({
-                "id": str(uuid.uuid4()),
-                "timestamp": utcnow(),
-                "ticker": ticker,
-                "qty": trade_qty,
-                "price": counter["body"].get("price", 0),
-                "direction": direction,
-                "order_id": order["id"],
-                "user_id": order["user_id"],
-            })
-            if _remaining(counter) == 0:
-                counter["status"] = "EXECUTED"
-                orders.pop(i)
-            else:
-                counter["status"] = "PARTIALLY_EXECUTED"
-                i += 1
-        if _remaining(order) > 0:
-            if order["filled"] > 0:
-                order["status"] = "PARTIALLY_EXECUTED"
-            book["SELL"].append(order)
-            book["SELL"].sort(key=lambda o: o["body"]["price"])
-        else:
-            order["status"] = "EXECUTED"
-
-
 def process_order(order):
-    if "price" in order["body"]:
-        _match_limit(order)
-    else:
-        _match_market(order)
+    _match_order(order)
+    if _remaining(order) > 0 and "price" in order["body"]:
+        ticker = order["body"]["ticker"]
+        direction = order["body"]["direction"]
+        book = ORDER_BOOK[ticker][direction]
+        book.append(order)
+        rev = direction == "BUY"
+        book.sort(key=lambda o: o["body"]["price"], reverse=rev)
 
 
 def http_validation_error(msg, loc=None):
@@ -219,11 +139,6 @@ class RegisterView(APIView):
 
 class InstrumentListView(APIView):
     def get(self, request):
-        instruments = [
-            {"name": "Memecoin", "ticker": "MEMCOIN"},
-            {"name": "Dodge", "ticker": "DODGE"}
-        ]
-        serializer = InstrumentSerializer(instruments, many=True)
         serializer = InstrumentSerializer(INSTRUMENTS.values(), many=True)
         return Response(serializer.data, status=200)
 
@@ -241,10 +156,8 @@ class L2OrderBookView(APIView):
         bids = sorted(book["BUY"], key=lambda o: o["body"]["price"], reverse=True)[:limit]
         asks = sorted(book["SELL"], key=lambda o: o["body"]["price"])[:limit]
         orderbook = {
-            "bid_levels": [],
-            "ask_levels": [],
             "bid_levels": [{"price": o["body"]["price"], "qty": _remaining(o)} for o in bids],
-            "ask_levels": [{"price": o["body"]["price"], "qty": _remaining(o)} for o in asks]
+            "ask_levels": [{"price": o["body"]["price"], "qty": _remaining(o)} for o in asks],
         }
         serializer = L2OrderBookSerializer(orderbook)
         return Response(serializer.data, status=200)
@@ -260,7 +173,6 @@ class TransactionHistoryView(APIView):
                 raise ValueError()
         except Exception:
             return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
-        serializer = TransactionSerializer([], many=True)
         txs = [t for t in TRADES if t["ticker"] == ticker][:limit]
         serializer = TransactionSerializer(txs, many=True)
         return Response(serializer.data, status=200)
@@ -276,13 +188,10 @@ class BalanceView(APIView):
 
 class OrderListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    # Accept JSON, form-urlencoded and multipart form data
     parser_classes = [JSONParser, FormParser, MultiPartParser]
 
 
     def get(self, request):
-        orders = []
-        return Response(orders, status=200)
         user_id = str(request.user.id)
         orders = [o for o in ORDERS.values() if o["user_id"] == user_id]
         serializer = LimitOrderSerializer(orders, many=True)
@@ -297,9 +206,6 @@ class OrderListCreateView(APIView):
             serializer = MarketOrderBodySerializer(data=body)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
-        response = {
-            "success": True,
-            "order_id": str(uuid.uuid4())}
         order_id = str(uuid.uuid4())
         body_data = dict(serializer.validated_data)
         body_data["ticker"] = body_data["ticker"].upper()
@@ -319,19 +225,6 @@ class OrderListCreateView(APIView):
 class OrderDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     def get(self, request, order_id):
-        order = {
-            "id": str(order_id),
-            "status": "NEW",
-            "user_id": str(uuid.uuid4()),
-            "timestamp": datetime.utcnow().isoformat(),
-            "body": {
-                "direction": "BUY",
-                "ticker": "MEMCOIN",
-                "qty": 1,
-                "price": 100
-            },
-            "filled": 0
-        }
         order = ORDERS.get(str(order_id))
         if not order:
             return Response(status=404)
@@ -365,19 +258,11 @@ class AdminUserDeleteView(APIView):
 
 class AdminInstrumentCreateView(APIView):
     permission_classes = [permissions.IsAdminUser]
-    # Support JSON, form and multipart data
     parser_classes = [JSONParser, FormParser, MultiPartParser]
 
 
     @swagger_auto_schema(request_body=InstrumentSerializer, responses={200: OkSerializer})
     def post(self, request):
-        print(
-            f"\n>>> REQUEST LOG: {request.method} {request.get_full_path()}\n"
-            f"Headers: {dict(request.headers)}\n"
-            f"Content-Type: {request.content_type}\n"
-            f"Body: {request.body.decode(errors='replace')}\n",
-            file=sys.stderr
-        )
         serializer = InstrumentSerializer(data=request.data)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
@@ -386,7 +271,6 @@ class AdminInstrumentCreateView(APIView):
         if ticker in INSTRUMENTS:
             return http_validation_error("Instrument already exists", ["body", "ticker"])
         INSTRUMENTS[ticker] = {"name": data["name"], "ticker": ticker}
-        # ensure order book exists
         ORDER_BOOK[ticker]
         ok = {"success": True}
         return Response(ok, status=200)
@@ -397,7 +281,6 @@ class AdminInstrumentDeleteView(APIView):
         ticker = ticker.upper()
         if ticker in INSTRUMENTS:
             del INSTRUMENTS[ticker]
-            # drop order book if exists
             ORDER_BOOK.pop(ticker, None)
             ok = {"success": True}
             return Response(ok, status=200)
