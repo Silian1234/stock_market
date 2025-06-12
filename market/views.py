@@ -274,10 +274,10 @@ class BalanceView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        user_id = str(request.user.id)
-        balances = {t: float(a) for t, a in BALANCES[user_id].items() if a}
-        for ticker in INSTRUMENTS:
-            balances.setdefault(ticker, 0.0)
+        user_id  = str(request.user.id)
+        balances = {
+            t: float(a) for t, a in BALANCES[user_id].items() if a
+        }
         return Response(balances, status=200)
 
 
@@ -385,12 +385,18 @@ class AdminInstrumentCreateView(APIView):
         serializer = InstrumentSerializer(data=request.data)
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
+
         data = serializer.validated_data
         ticker = data["ticker"].upper()
+
         if ticker in INSTRUMENTS:
             return http_validation_error("Instrument already exists", ["body", "ticker"])
+
+        if len(ticker) > 20:
+            return http_validation_error("Ticker too long", ["body", "ticker"])
+
         INSTRUMENTS[ticker] = {"name": data["name"], "ticker": ticker}
-        ORDER_BOOK[ticker]  # ensure book created
+        ORDER_BOOK[ticker]
         return Response({"success": True}, status=200)
 
 
@@ -416,9 +422,12 @@ class AdminBalanceDepositView(APIView):
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
 
+        amount = Decimal(serializer.validated_data["amount"])
+        if amount <= 0:
+            return http_validation_error("Amount must be positive", ["body", "amount"])
+
         user_id = serializer.validated_data["user_id"]
-        ticker  = serializer.validated_data["ticker"].upper()
-        amount  = Decimal(serializer.validated_data["amount"])
+        ticker = serializer.validated_data["ticker"].upper()
 
         if ticker not in INSTRUMENTS:
             return http_validation_error("Unknown ticker", ["body", "ticker"])
