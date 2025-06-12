@@ -1,4 +1,6 @@
 # market/views.py
+from __future__ import annotations
+
 import sys
 import uuid
 from collections import defaultdict
@@ -29,10 +31,6 @@ from .serializers import (
     WithdrawSerializer,
 )
 
-# --------------------------------------------------------------------------- #
-# helpers
-# --------------------------------------------------------------------------- #
-
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -45,6 +43,15 @@ def _cleanup_book(ticker: str):
 def _remaining(order: dict) -> Decimal:
     return Decimal(order["body"]["qty"]) - Decimal(order["filled"])
 
+def _best_cost_to_fill(ticker: str, qty: Decimal) -> Decimal | None:
+    need, spent = qty, Decimal(0)
+    for o in sorted(ORDER_BOOK[ticker]["SELL"], key=lambda x: x["body"]["price"]):
+        avail = min(_remaining(o), need)
+        spent += avail * Decimal(o["body"]["price"])
+        need  -= avail
+        if need == 0:
+            return spent
+    return None
 
 def http_validation_error(msg, loc=None):
     if loc is None:
@@ -190,11 +197,6 @@ def process_order(order):
     else:
         match_market_order(order)
 
-
-# --------------------------------------------------------------------------- #
-# API views
-# --------------------------------------------------------------------------- #
-
 class RegisterView(APIView):
     parser_classes = [JSONParser, FormParser, MultiPartParser]
 
@@ -238,8 +240,21 @@ class L2OrderBookView(APIView):
             return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
 
         book = ORDER_BOOK[ticker]
-        bids = [o for o in sorted(book["BUY"], key=lambda x: x["body"]["price"], reverse=True) if _remaining(o) > 0][:limit]
-        asks = [o for o in sorted(book["SELL"], key=lambda x: x["body"]["price"]) if _remaining(o) > 0][:limit]
+
+        def _levels(side: list[dict], limit: int, reverse=False):
+            out, acc = [], {}
+            for o in sorted(side, key=lambda x: x["body"]["price"], reverse=reverse):
+                rem = _remaining(o)
+                if rem <= 0:
+                    continue
+                p = o["body"]["price"]
+                acc[p] = acc.get(p, 0) + rem
+            for price in sorted(acc, reverse=reverse)[:limit]:
+                out.append({"price": price, "qty": acc[price]})
+            return out
+
+        bids = _levels(book["BUY"], limit, reverse=True)
+        asks = _levels(book["SELL"], limit, reverse=False)
 
         orderbook = {
             "bid_levels": [
@@ -308,14 +323,21 @@ class OrderListCreateView(APIView):
         user_id = str(request.user.id)
 
         qty = Decimal(body_data["qty"])
-        if body_data["direction"] == "BUY":
-            price = Decimal(body_data.get("price") or 0)
-            required = qty * price
-            if BALANCES[user_id]["RUB"] < required:
-                return http_validation_error("Insufficient funds")
-        else:  # SELL
-            if BALANCES[user_id][body_data["ticker"]] < qty:
-                return http_validation_error("Insufficient asset qty")
+        side = body_data["direction"]
+        tick = body_data["ticker"]
+
+        if side == "BUY":
+            if "price" in body_data:
+                need = qty * Decimal(body_data["price"])
+            else:
+                need = _best_cost_to_fill(tick, qty)
+                if need is None:
+                    return http_validation_error("No liquidity", ["body"])
+            if BALANCES[user_id]["RUB"] < need:
+                return http_validation_error("Insufficient funds", ["body"])
+        else:
+            if BALANCES[user_id][tick] < qty:
+                return http_validation_error("Insufficient asset qty", ["body"])
 
         order_id = str(uuid.uuid4())
         order = {
@@ -343,24 +365,31 @@ class OrderDetailView(APIView):
         if not order:
             return Response(status=404)
 
-        if "price" in order["body"]:
-            serializer = LimitOrderSerializer(order)
-        else:
-            serializer = MarketOrderSerializer(order)
-
+        serializer = (
+            LimitOrderSerializer(order)
+            if "price" in order["body"]
+            else MarketOrderSerializer(order)
+        )
         return Response(serializer.data, status=200)
 
     def delete(self, request, order_id):
         order = ORDERS.get(str(order_id))
         if not order:
             return Response(status=404)
-        order["status"] = "CANCELLED"
-        ticker = order["body"]["ticker"]
-        direction = order["order_type"].upper()
-        if order in ORDER_BOOK[ticker][direction]:
-            ORDER_BOOK[ticker][direction].remove(order)
-        return Response({"success": True}, status=200)
 
+        if order["status"] in ("EXECUTED", "CANCELLED"):
+            return http_validation_error("Cannot cancel finished order")
+
+        order["status"] = "CANCELLED"
+
+        ticker    = order["body"]["ticker"]
+        direction = order["order_type"].upper()
+        book_side = ORDER_BOOK[ticker][direction]
+
+        if order in book_side:
+            book_side.remove(order)
+
+        return Response({"success": True}, status=200)
 
 class AdminUserDeleteView(APIView):
     permission_classes = [permissions.IsAdminUser]
@@ -385,6 +414,8 @@ class AdminInstrumentCreateView(APIView):
             return http_validation_error(serializer.errors)
         data = serializer.validated_data
         ticker = data["ticker"]
+        if any(t.upper() == ticker for t in INSTRUMENTS):
+            return http_validation_error("Instrument already exists", ["body", "ticker"])
 
         if ticker in INSTRUMENTS:
             return http_validation_error("Instrument already exists", ["body", "ticker"])
@@ -427,12 +458,12 @@ class AdminBalanceDepositView(APIView):
             uuid.UUID(user_id)
         except ValueError:
             return http_validation_error("Invalid user_id", ["body", "user_id"])
-
         if not User.objects.filter(id=user_id).exists():
             return http_validation_error("User not found", ["body", "user_id"])
-
         if ticker not in INSTRUMENTS:
             return http_validation_error("Unknown ticker", ["body", "ticker"])
+        if amount <= 0:
+            return http_validation_error("Amount must be positive", ["body", "amount"])
 
         BALANCES[user_id][ticker] += amount
         return Response({"success": True}, status=200)
