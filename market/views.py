@@ -6,6 +6,8 @@ from rest_framework.response import Response
 from rest_framework import status, permissions
 from rest_framework.parsers import *
 from drf_yasg.utils import swagger_auto_schema
+
+from .models import Account
 from .serializers import (
     UserSerializer, NewUserSerializer, InstrumentSerializer,
     L2OrderBookSerializer, LimitOrderSerializer, MarketOrderSerializer,
@@ -193,10 +195,20 @@ class RegisterView(APIView):
         serializer = NewUserSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=422)
-        username = serializer.validated_data['name']
-        role = serializer.validated_data.get('role', User.Roles.USER)
+
+        username = serializer.validated_data["name"]
+        role = serializer.validated_data.get("role", User.Roles.USER)
         is_staff = role == User.Roles.ADMIN
-        user = User.objects.create_user(username=username, role=role, is_staff=is_staff)
+
+        user = User.objects.create_user(
+            username=username,
+            role=role,
+            is_staff=is_staff
+        )
+
+        Account.objects.get_or_create(user=user, defaults={"balance": 250})
+        BALANCES[str(user.id)]["RUB"] = 250
+
         data = {
             "id": str(user.id),
             "name": user.username,
