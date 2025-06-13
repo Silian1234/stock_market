@@ -287,6 +287,16 @@ class OrderListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [JSONParser, FormParser, MultiPartParser]
 
+    def get(self, request):
+        user_id = str(request.user.id)
+        orders = [o for o in ORDERS.values() if o["user_id"] == user_id]
+        orders.sort(key=lambda x: x["timestamp"], reverse=True)
+        data = [
+            (LimitOrderSerializer(o).data if "price" in o["body"] else MarketOrderSerializer(o).data)
+            for o in orders
+        ]
+        return Response(data, status=200)
+
     def post(self, request):
         body = request.data
         serializer = (
@@ -304,10 +314,11 @@ class OrderListCreateView(APIView):
         tick = body_data["ticker"]
 
         if side == "BUY":
-            if "price" in body_data:
-                need = qty * Decimal(body_data["price"])
-            else:
-                need = _best_cost_to_fill(tick, qty)
+            need = (
+                qty * Decimal(body_data["price"])
+                if "price" in body_data
+                else _best_cost_to_fill(tick, qty)
+            )
             if _is_infinite(need) or BALANCES[user_id]["RUB"] < need:
                 return http_validation_error("Insufficient funds", ["body"])
         else:
@@ -329,7 +340,6 @@ class OrderListCreateView(APIView):
         ORDERS[order_id] = order
         process_order(order)
         return Response({"success": True, "order_id": order_id}, status=200)
-
 
 
 
