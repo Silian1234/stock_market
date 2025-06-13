@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from rest_framework import permissions, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
@@ -206,7 +207,10 @@ class RegisterView(APIView):
         username = serializer.validated_data["name"]
         role = serializer.validated_data.get("role", User.Roles.USER)
         is_staff = role == User.Roles.ADMIN
-        user = User.objects.create_user(username=username, role=role, is_staff=is_staff)
+        try:
+            user = User.objects.create_user(username=username, role=role, is_staff=is_staff)
+        except IntegrityError:
+            return http_validation_error("Username already exists", ["body", "name"])
         BALANCES[str(user.id)]["RUB"] = Decimal("250")
         Account.objects.get_or_create(user=user, defaults={"balance": 250})
         data = {"id": str(user.id), "name": user.username, "role": user.role, "api_key": user.api_key}
@@ -246,16 +250,7 @@ class L2OrderBookView(APIView):
 
         bids = _levels(book["BUY"], limit, reverse=True)
         asks = _levels(book["SELL"], limit, reverse=False)
-
-        orderbook = {
-            "bid_levels": [
-                {"price": o["body"]["price"], "qty": _remaining(o)} for o in bids
-            ],
-            "ask_levels": [
-                {"price": o["body"]["price"], "qty": _remaining(o)} for o in asks
-            ],
-        }
-        serializer = L2OrderBookSerializer(orderbook)
+        serializer = L2OrderBookSerializer({"bid_levels": bids, "ask_levels": asks})
         return Response(serializer.data, status=200)
 
 
@@ -310,12 +305,15 @@ class OrderListCreateView(APIView):
         else:
             if BALANCES[user_id][tick] < qty:
                 return http_validation_error("Insufficient asset qty", ["body"])
+            if not ORDER_BOOK[tick]["BUY"]:
+                return http_validation_error("No liquidity to sell", ["body"])
         order_id = str(uuid.uuid4())
         order = {"id": order_id, "status": "NEW", "user_id": user_id, "timestamp": utcnow(),
                  "order_type": side.lower(), "body": body_data, "filled": 0.0}
         ORDERS[order_id] = order
         process_order(order)
         return Response({"success": True, "order_id": order_id}, status=200)
+
 
 
 
@@ -326,7 +324,7 @@ class OrderDetailView(APIView):
         order = ORDERS.get(str(order_id))
         if not order:
             return Response(status=404)
-        if order["status"] in ("EXECUTED", "CANCELLED") or order["order_type"] == "market":
+        if order["order_type"] == "market" or order["status"] in ("EXECUTED", "CANCELLED"):
             return http_validation_error("Cannot cancel finished order")
         order["status"] = "CANCELLED"
         ticker = order["body"]["ticker"]
@@ -336,6 +334,7 @@ class OrderDetailView(APIView):
             book_side.remove(order)
         _cleanup_book(ticker)
         return Response({"success": True}, status=200)
+
 
 
 class AdminUserDeleteView(APIView):
