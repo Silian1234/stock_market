@@ -36,6 +36,9 @@ from .serializers import (
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
+def _is_infinite(val: Decimal) -> bool:
+    return not val.is_finite()
+
 def _cleanup_book(ticker: str):
     for side in ("BUY", "SELL"):
         ORDER_BOOK[ticker][side] = [
@@ -77,10 +80,6 @@ INSTRUMENTS = {
 }
 
 User = get_user_model()
-
-# --------------------------------------------------------------------------- #
-# order-matching engine
-# --------------------------------------------------------------------------- #
 
 def _apply_trade(
     buyer_id: str,
@@ -213,9 +212,13 @@ class RegisterView(APIView):
             return http_validation_error("Username already exists", ["body", "name"])
         BALANCES[str(user.id)]["RUB"] = Decimal("250")
         Account.objects.get_or_create(user=user, defaults={"balance": 250})
-        data = {"id": str(user.id), "name": user.username, "role": user.role, "api_key": user.api_key}
+        data = {
+            "id": str(user.id),
+            "name": user.username,
+            "role": user.role,
+            "api_key": user.api_key,
+        }
         return Response(data, status=200)
-
 
 
 class InstrumentListView(APIView):
@@ -233,7 +236,6 @@ class L2OrderBookView(APIView):
                 raise ValueError
         except ValueError:
             return http_validation_error("Invalid 'limit' parameter", ["query", "limit"])
-
         book = ORDER_BOOK[ticker]
 
         def _levels(side, limit, reverse=False):
@@ -252,6 +254,7 @@ class L2OrderBookView(APIView):
         asks = _levels(book["SELL"], limit, reverse=False)
         serializer = L2OrderBookSerializer({"bid_levels": bids, "ask_levels": asks})
         return Response(serializer.data, status=200)
+
 
 
 class TransactionHistoryView(APIView):
@@ -286,7 +289,11 @@ class OrderListCreateView(APIView):
 
     def post(self, request):
         body = request.data
-        serializer = LimitOrderBodySerializer(data=body) if "price" in body else MarketOrderBodySerializer(data=body)
+        serializer = (
+            LimitOrderBodySerializer(data=body)
+            if "price" in body
+            else MarketOrderBodySerializer(data=body)
+        )
         if not serializer.is_valid():
             return http_validation_error(serializer.errors)
         body_data = dict(serializer.validated_data)
@@ -295,21 +302,30 @@ class OrderListCreateView(APIView):
         qty = Decimal(body_data["qty"])
         side = body_data["direction"]
         tick = body_data["ticker"]
+
         if side == "BUY":
             if "price" in body_data:
                 need = qty * Decimal(body_data["price"])
             else:
                 need = _best_cost_to_fill(tick, qty)
-            if not math.isfinite(need) or BALANCES[user_id]["RUB"] < need:
+            if _is_infinite(need) or BALANCES[user_id]["RUB"] < need:
                 return http_validation_error("Insufficient funds", ["body"])
         else:
             if BALANCES[user_id][tick] < qty:
                 return http_validation_error("Insufficient asset qty", ["body"])
-            if not ORDER_BOOK[tick]["BUY"]:
+            if "price" not in body_data and not ORDER_BOOK[tick]["BUY"]:
                 return http_validation_error("No liquidity to sell", ["body"])
+
         order_id = str(uuid.uuid4())
-        order = {"id": order_id, "status": "NEW", "user_id": user_id, "timestamp": utcnow(),
-                 "order_type": side.lower(), "body": body_data, "filled": 0.0}
+        order = {
+            "id": order_id,
+            "status": "NEW",
+            "user_id": user_id,
+            "timestamp": utcnow(),
+            "order_type": side.lower(),
+            "body": body_data,
+            "filled": 0.0,
+        }
         ORDERS[order_id] = order
         process_order(order)
         return Response({"success": True, "order_id": order_id}, status=200)
@@ -317,14 +333,26 @@ class OrderListCreateView(APIView):
 
 
 
+
 class OrderDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, order_id):
+        order = ORDERS.get(str(order_id))
+        if not order:
+            return Response(status=404)
+        serializer = (
+            LimitOrderSerializer(order)
+            if "price" in order["body"]
+            else MarketOrderSerializer(order)
+        )
+        return Response(serializer.data, status=200)
 
     def delete(self, request, order_id):
         order = ORDERS.get(str(order_id))
         if not order:
             return Response(status=404)
-        if order["order_type"] == "market" or order["status"] in ("EXECUTED", "CANCELLED"):
+        if order["status"] in ("EXECUTED", "CANCELLED") or "price" not in order["body"]:
             return http_validation_error("Cannot cancel finished order")
         order["status"] = "CANCELLED"
         ticker = order["body"]["ticker"]
@@ -334,8 +362,6 @@ class OrderDetailView(APIView):
             book_side.remove(order)
         _cleanup_book(ticker)
         return Response({"success": True}, status=200)
-
-
 
 class AdminUserDeleteView(APIView):
     permission_classes = [permissions.IsAdminUser]
